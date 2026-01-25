@@ -270,6 +270,38 @@ async def create_order(order: OrderIn, request: Request):
         "",         # Q: staff_message_id
     ])
 
+    from telegram.constants import ParseMode
+
+    text = (
+        "🛎 <b>Новый заказ (WebApp)</b>\n\n"
+        f"🧾 ID: <code>{order_id}</code>\n"
+        f"👤 Имя: {c.name}\n"
+        f"📞 Телефон: {c.phone}\n"
+        f"💰 Сумма: {order.pricing.grandTotal} ₩"
+    )
+
+    for chat_id in STAFF_CHAT_IDS:
+        try:
+            if order.screenshotBase64:
+                photo_bytes = base64.b64decode(
+                    order.screenshotBase64.split(",", 1)[-1]
+                )
+                await bot.send_photo(
+                    chat_id=chat_id,
+                    photo=photo_bytes,
+                    caption=text,
+                    parse_mode=ParseMode.HTML,
+                )
+            else:
+                await bot.send_message(
+                    chat_id=chat_id,
+                    text=text,
+                    parse_mode=ParseMode.HTML,
+                )
+        except Exception as e:
+            log.error(f"Telegram notify failed for {chat_id}: {e}")
+
+
     # --- TELEGRAM NOTIFY ---
     try:
         sent_msg = await notify_staff_from_web(
