@@ -212,9 +212,12 @@ def save_screenshot_file(order_id: str, screenshot_b64: str) -> str:
 def health():
     return {"status": "ok"}
 
+from fastapi import Request
+
 @app.post("/order")
-async def create_order(order: OrderIn):
+async def create_order(order: OrderIn, request: Request):
     log.info("=== /order called ===")
+    log.info(f"Client IP: {request.client.host}")
     log.info(f"Customer user_id={order.customer.user_id}")
     log.info(f"Items count={len(order.items)}")
     order_id = str(uuid.uuid4())
