@@ -99,9 +99,8 @@ async def notify_staff_simple(order_id: str, text: str):
     for chat_id in STAFF_CHAT_IDS:
         try:
             await bot.send_message(
-                chat_id=chat_id,
-                text=text,
-                parse_mode="HTML",
+                chat_id=OWNER_CHAT_ID,
+                text="TEST WEBAPP NOTIFY",
             )
         except Exception as e:
             print(f"notify failed for {chat_id}: {e}")
