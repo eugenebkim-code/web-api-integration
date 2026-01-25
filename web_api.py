@@ -19,7 +19,7 @@ from telegram.constants import ParseMode
 
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
-from config import BOT_TOKEN, STAFF_CHAT_IDS, SPREADSHEET_ID
+
 # -------------------------------------------------
 # BASE DIR / FILES
 # -------------------------------------------------
