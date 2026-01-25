@@ -253,10 +253,10 @@ async def create_order(order: OrderIn, request: Request):
     else:
         payment_proof_value = "screenshots/dev_placeholder.jpg"
 
-    append_row("orders!A:O", [
+    append_row("orders!A:Q", [
         order_id,
         created_at,
-        c.user_id,                  # buyer_chat_id = telegram id
+        c.user_id,
         c.username or "",
         items_str,
         order.pricing.grandTotal,
@@ -267,6 +267,8 @@ async def create_order(order: OrderIn, request: Request):
         "", "", "",
         c.address or "",
         order.pricing.delivery,
+        "webapp",   # P: source
+        "",         # Q: staff_message_id
     ])
 
     # --- TELEGRAM ---
