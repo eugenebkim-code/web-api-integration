@@ -270,6 +270,28 @@ async def create_order(order: OrderIn, request: Request):
         "",         # Q: staff_message_id
     ])
 
+    # --- TELEGRAM NOTIFY ---
+    try:
+        sent_msg = await notify_staff_from_web(
+            bot=bot,
+            order_id=order_id,
+            order=order.model_dump(),
+        )
+        log.info(f"Telegram notified, message_id={getattr(sent_msg, 'message_id', None)}")
+    except Exception:
+        log.exception("Telegram notify failed")
+
+    # если сообщение ушло, обновляем orders!Q
+    if message_id:
+        sheets = _sheets_service.spreadsheets()
+        sheets.values().update(
+            spreadsheetId=SPREADSHEET_ID,
+            range=f"orders!Q{ /* НОМЕР СТРОКИ */ }",
+            valueInputOption="RAW",
+            body={"values": [[str(message_id)]]},
+        ).execute()
+
+
     # --- TELEGRAM ---
     text = (
         "🛎 <b>Новый заказ (WebApp)</b>\n\n"
