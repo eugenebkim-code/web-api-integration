@@ -1,40 +1,33 @@
 # web_api.py
-import sys
-import os
-import uuid
-import asyncio
-from datetime import datetime
-from typing import List, Optional
 
-BOT_BACKEND_PATH = r"C:\Users\home\Desktop\PROJECTS\barakat-backend"
-sys.path.append(BOT_BACKEND_PATH)
+from notifications import notify_staff_from_web
+import json
+import base64
 
-from main import notify_staff_from_web
+GOOGLE_SERVICE_ACCOUNT_JSON_B64 = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON_B64")
 
-from fastapi import FastAPI
-from pydantic import BaseModel
-from dotenv import load_dotenv
+if not GOOGLE_SERVICE_ACCOUNT_JSON_B64:
+    raise RuntimeError("GOOGLE_SERVICE_ACCOUNT_JSON_B64 is missing")
 
-from telegram import Bot
-from google.oauth2.service_account import Credentials
-from googleapiclient.discovery import build
+service_account_info = json.loads(
+    base64.b64decode(GOOGLE_SERVICE_ACCOUNT_JSON_B64).decode("utf-8")
+)
 
-import logging
+credentials = Credentials.from_service_account_info(
+    service_account_info,
+    scopes=["https://www.googleapis.com/auth/spreadsheets"],
+)
 
-logging.basicConfig(level=logging.INFO)
-log = logging.getLogger("WEB_API")
-
+sheets_service = build("sheets", "v4", credentials=credentials)
 
 # -------------------------------------------------
 # ENV
 # -------------------------------------------------
-load_dotenv()
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 SPREADSHEET_ID = os.getenv("SPREADSHEET_ID")
-GOOGLE_SERVICE_ACCOUNT_FILE = os.getenv("GOOGLE_SERVICE_ACCOUNT_FILE")
-SCREENSHOTS_DIR = os.path.join(os.path.dirname(__file__), "screenshots")
-os.makedirs(SCREENSHOTS_DIR, exist_ok=True)
+GOOGLE_SERVICE_ACCOUNT_JSON_B64 = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON_B64")
+
 STAFF_CHAT_IDS = {
     int(x)
     for x in (os.getenv("STAFF_CHAT_IDS") or "").split(",")
@@ -47,22 +40,28 @@ if not BOT_TOKEN:
 if not SPREADSHEET_ID:
     raise RuntimeError("SPREADSHEET_ID is missing")
 
-if not GOOGLE_SERVICE_ACCOUNT_FILE:
-    raise RuntimeError("GOOGLE_SERVICE_ACCOUNT_FILE is missing")
+if not GOOGLE_SERVICE_ACCOUNT_JSON_B64:
+    raise RuntimeError("GOOGLE_SERVICE_ACCOUNT_JSON_B64 is missing")
+
 
 # -------------------------------------------------
-# Google Sheets
+# Google Sheets (Railway-safe)
 # -------------------------------------------------
-def get_sheets():
-    creds = Credentials.from_service_account_file(
-        GOOGLE_SERVICE_ACCOUNT_FILE,
-        scopes=["https://www.googleapis.com/auth/spreadsheets"],
-    )
-    return build("sheets", "v4", credentials=creds)
+
+service_account_info = json.loads(
+    base64.b64decode(GOOGLE_SERVICE_ACCOUNT_JSON_B64).decode("utf-8")
+)
+
+_sheets_credentials = Credentials.from_service_account_info(
+    service_account_info,
+    scopes=["https://www.googleapis.com/auth/spreadsheets"],
+)
+
+_sheets_service = build("sheets", "v4", credentials=_sheets_credentials)
 
 
 def append_row(range_name: str, row: list):
-    sheets = get_sheets().spreadsheets()
+    sheets = _sheets_service.spreadsheets()
     sheets.values().append(
         spreadsheetId=SPREADSHEET_ID,
         range=range_name,
@@ -129,17 +128,23 @@ class OrderIn(BaseModel):
 # -------------------------------------------------
 # App
 # -------------------------------------------------
+
 app = FastAPI(title="BARAKAT Web API")
 
 from fastapi.middleware.cors import CORSMiddleware
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # dev
+    allow_origins=["*"],  # dev, позже сузим
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
 
 # -------------------------------------------------
 # Helpers
@@ -189,12 +194,6 @@ def save_screenshot_file(order_id: str, screenshot_b64: str) -> str:
 # -------------------------------------------------
 @app.get("/health")
 def health():
-    return {"status": "ok"}
-
-app = FastAPI()
-
-@app.get("/health")
-async def health():
     return {"status": "ok"}
 
 @app.post("/order")
