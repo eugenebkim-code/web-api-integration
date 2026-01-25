@@ -274,6 +274,7 @@ async def create_order(order: OrderIn, request: Request):
         f"📞 Телефон: {c.phone}\n"
         f"💰 Сумма: {order.pricing.grandTotal} ₩"
     )
+    log.info(f"SENDING TO BOT TOKEN PREFIX: {BOT_TOKEN[:10]}")
     log.info(f"Calling notify_staff_from_web for order {order_id}")
     await notify_staff_from_web(order.model_dump())
     log.info("notify_staff_from_web finished")
