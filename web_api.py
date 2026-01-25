@@ -1,8 +1,24 @@
 # web_api.py
 
-from notifications import notify_staff_from_web
+import os
+import uuid
 import json
 import base64
+import logging
+log = logging.getLogger("WEB_API")
+from datetime import datetime
+from typing import List, Optional
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+
+from telegram import Bot
+
+from google.oauth2.service_account import Credentials
+from googleapiclient.discovery import build
+
+from notifications import notify_staff_from_web
 
 GOOGLE_SERVICE_ACCOUNT_JSON_B64 = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON_B64")
 
@@ -256,6 +272,6 @@ async def create_order(order: OrderIn):
         f"💰 Сумма: {order.pricing.grandTotal} ₩"
     )
     log.info(f"Calling notify_staff_from_web for order {order_id}")
-    await notify_staff_from_web(bot, order_id)
+    await notify_staff_from_web(order.model_dump())
     log.info("notify_staff_from_web finished")
     return {"ok": True, "order_id": order_id}
