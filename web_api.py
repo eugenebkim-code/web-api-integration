@@ -1,6 +1,9 @@
 # web_api.py
 
 import os
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+SCREENSHOTS_DIR = os.path.join(BASE_DIR, "screenshots")
+os.makedirs(SCREENSHOTS_DIR, exist_ok=True)
 import uuid
 import json
 import base64
