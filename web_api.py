@@ -1,43 +1,33 @@
 # web_api.py
 
 import os
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-SCREENSHOTS_DIR = os.path.join(BASE_DIR, "screenshots")
-os.makedirs(SCREENSHOTS_DIR, exist_ok=True)
 import uuid
 import json
 import base64
 import logging
-log = logging.getLogger("WEB_API")
+import re
 from datetime import datetime
 from typing import List, Optional
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from telegram import Bot
+from telegram.constants import ParseMode
 
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 
-from notifications import notify_staff_from_web
+# -------------------------------------------------
+# BASE DIR / FILES
+# -------------------------------------------------
 
-GOOGLE_SERVICE_ACCOUNT_JSON_B64 = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON_B64")
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+SCREENSHOTS_DIR = os.path.join(BASE_DIR, "screenshots")
+os.makedirs(SCREENSHOTS_DIR, exist_ok=True)
 
-if not GOOGLE_SERVICE_ACCOUNT_JSON_B64:
-    raise RuntimeError("GOOGLE_SERVICE_ACCOUNT_JSON_B64 is missing")
-
-service_account_info = json.loads(
-    base64.b64decode(GOOGLE_SERVICE_ACCOUNT_JSON_B64).decode("utf-8")
-)
-
-credentials = Credentials.from_service_account_info(
-    service_account_info,
-    scopes=["https://www.googleapis.com/auth/spreadsheets"],
-)
-
-sheets_service = build("sheets", "v4", credentials=credentials)
+log = logging.getLogger("WEB_API")
 
 # -------------------------------------------------
 # ENV
@@ -62,26 +52,23 @@ if not SPREADSHEET_ID:
 if not GOOGLE_SERVICE_ACCOUNT_JSON_B64:
     raise RuntimeError("GOOGLE_SERVICE_ACCOUNT_JSON_B64 is missing")
 
-
 # -------------------------------------------------
-# Google Sheets (Railway-safe)
+# GOOGLE SHEETS
 # -------------------------------------------------
 
 service_account_info = json.loads(
     base64.b64decode(GOOGLE_SERVICE_ACCOUNT_JSON_B64).decode("utf-8")
 )
 
-_sheets_credentials = Credentials.from_service_account_info(
+credentials = Credentials.from_service_account_info(
     service_account_info,
     scopes=["https://www.googleapis.com/auth/spreadsheets"],
 )
 
-_sheets_service = build("sheets", "v4", credentials=_sheets_credentials)
-
+sheets_service = build("sheets", "v4", credentials=credentials)
 
 def append_row(range_name: str, row: list):
-    sheets = _sheets_service.spreadsheets()
-    sheets.values().append(
+    sheets_service.spreadsheets().values().append(
         spreadsheetId=SPREADSHEET_ID,
         range=range_name,
         valueInputOption="RAW",
@@ -90,24 +77,15 @@ def append_row(range_name: str, row: list):
     ).execute()
 
 # -------------------------------------------------
-# Notify
+# TELEGRAM
 # -------------------------------------------------
+
 bot = Bot(token=BOT_TOKEN)
 
-
-async def notify_staff_simple(order_id: str, text: str):
-    for chat_id in STAFF_CHAT_IDS:
-        try:
-            await bot.send_message(
-                chat_id=OWNER_CHAT_ID,
-                text="TEST WEBAPP NOTIFY",
-            )
-        except Exception as e:
-            print(f"notify failed for {chat_id}: {e}")
-
 # -------------------------------------------------
-# Models
+# MODELS
 # -------------------------------------------------
+
 class OrderItem(BaseModel):
     id: str
     name: str
@@ -116,7 +94,7 @@ class OrderItem(BaseModel):
 
 
 class OrderCustomer(BaseModel):
-    user_id: int                 # telegram user id
+    user_id: int
     username: Optional[str] = ""
     full_name: Optional[str] = ""
 
@@ -138,96 +116,62 @@ class OrderIn(BaseModel):
     items: List[OrderItem]
     pricing: OrderPricing
 
-    screenshotName: Optional[str] = None
-    screenshotBase64: Optional[str] = None  # ✅ data:image/...;base64,XXXX  или просто XXXX
-
+    screenshotBase64: Optional[str] = None
     createdAt: str
 
 # -------------------------------------------------
-# App
+# APP
 # -------------------------------------------------
 
 app = FastAPI(title="BARAKAT Web API")
 
-from fastapi.middleware.cors import CORSMiddleware
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # dev, позже сузим
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-
-@app.get("/health")
-async def health():
-    return {"status": "ok"}
-
-# -------------------------------------------------
-# Helpers
-# -------------------------------------------------
-
-import base64
-import re
-
-def save_screenshot_file(order_id: str, screenshot_b64: str) -> str:
-    """
-    Возвращает относительный путь вида: screenshots/order_<order_id>.jpg
-    screenshot_b64 может быть:
-      - "data:image/jpeg;base64,AAA..."
-      - "AAA..."
-    """
-    # вырезаем префикс data-url если есть
-    if screenshot_b64.startswith("data:"):
-        m = re.match(r"^data:image/([a-zA-Z0-9+.-]+);base64,(.+)$", screenshot_b64)
-        if not m:
-            raise ValueError("Invalid data-url base64")
-        ext = m.group(1).lower()
-        b64 = m.group(2)
-    else:
-        ext = "jpg"
-        b64 = screenshot_b64
-
-    # нормализуем расширение
-    if ext in ("jpeg", "jpg"):
-        ext = "jpg"
-    elif ext == "png":
-        ext = "png"
-    else:
-        ext = "jpg"
-
-    filename = f"order_{order_id}.{ext}"
-    abs_path = os.path.join(SCREENSHOTS_DIR, filename)
-
-    raw = base64.b64decode(b64)
-    with open(abs_path, "wb") as f:
-        f.write(raw)
-
-    # важно: возвращаем относительный путь, который поймет бот
-    return f"screenshots/{filename}"
-
-# -------------------------------------------------
-# Endpoints
-# -------------------------------------------------
 @app.get("/health")
 def health():
     return {"status": "ok"}
 
-from fastapi import Request
+# -------------------------------------------------
+# HELPERS
+# -------------------------------------------------
+
+def save_screenshot(order_id: str, data: str) -> str:
+    if data.startswith("data:"):
+        m = re.match(r"^data:image/[^;]+;base64,(.+)$", data)
+        if not m:
+            raise ValueError("Invalid screenshot base64")
+        data = m.group(1)
+
+    raw = base64.b64decode(data)
+    filename = f"order_{order_id}.jpg"
+    path = os.path.join(SCREENSHOTS_DIR, filename)
+
+    with open(path, "wb") as f:
+        f.write(raw)
+
+    return f"screenshots/{filename}"
+
+# -------------------------------------------------
+# ENDPOINT
+# -------------------------------------------------
 
 @app.post("/order")
 async def create_order(order: OrderIn, request: Request):
-    log.info("=== /order called ===")
-    log.info(f"Client IP: {request.client.host}")
-    log.info(f"Customer user_id={order.customer.user_id}")
-    log.info(f"Items count={len(order.items)}")
+    log.info("=== /order ===")
+    log.info(f"IP: {request.client.host}")
+
     order_id = str(uuid.uuid4())
     created_at = datetime.utcnow().isoformat()
 
     c = order.customer
 
-    # --- USERS ---
+    # USERS
     append_row("users!A:F", [
         c.user_id,
         c.username or "",
@@ -237,21 +181,17 @@ async def create_order(order: OrderIn, request: Request):
         c.phone,
     ])
 
-    # --- ITEMS ---
+    # ITEMS
     items_str = "; ".join(
         f"{item.name} x{item.qty}" for item in order.items
     )
 
-    # --- ORDERS ---
-    payment_proof_value = ""
-
-    # DEV MODE: если скрин не пришел, кладем фейковый путь
+    # SCREENSHOT
+    screenshot_path = ""
     if order.screenshotBase64:
-        payment_proof_value = save_screenshot_file(order_id, order.screenshotBase64)
-        log.info(f"Screenshot saved: {payment_proof_value}")
-    else:
-        payment_proof_value = "screenshots/dev_placeholder.jpg"
+        screenshot_path = save_screenshot(order_id, order.screenshotBase64)
 
+    # ORDERS
     append_row("orders!A:Q", [
         order_id,
         created_at,
@@ -261,17 +201,16 @@ async def create_order(order: OrderIn, request: Request):
         order.pricing.grandTotal,
         c.deliveryType,
         c.comment or "",
-        payment_proof_value,
+        screenshot_path,
         "pending",
         "", "", "",
         c.address or "",
         order.pricing.delivery,
-        "webapp",   # P: source
-        "",         # Q: staff_message_id
+        "webapp",
+        "",
     ])
 
-    from telegram.constants import ParseMode
-
+    # TELEGRAM TEXT
     text = (
         "🛎 <b>Новый заказ (WebApp)</b>\n\n"
         f"🧾 ID: <code>{order_id}</code>\n"
@@ -280,15 +219,14 @@ async def create_order(order: OrderIn, request: Request):
         f"💰 Сумма: {order.pricing.grandTotal} ₩"
     )
 
+    # TELEGRAM SEND
     for chat_id in STAFF_CHAT_IDS:
         try:
             if order.screenshotBase64:
-                photo_bytes = base64.b64decode(
-                    order.screenshotBase64.split(",", 1)[-1]
-                )
+                photo = base64.b64decode(order.screenshotBase64.split(",", 1)[-1])
                 await bot.send_photo(
                     chat_id=chat_id,
-                    photo=photo_bytes,
+                    photo=photo,
                     caption=text,
                     parse_mode=ParseMode.HTML,
                 )
@@ -298,40 +236,7 @@ async def create_order(order: OrderIn, request: Request):
                     text=text,
                     parse_mode=ParseMode.HTML,
                 )
-        except Exception as e:
-            log.error(f"Telegram notify failed for {chat_id}: {e}")
+        except Exception:
+            log.exception(f"Telegram notify failed for {chat_id}")
 
-
-    # --- TELEGRAM NOTIFY ---
-    try:
-        sent_msg = await notify_staff_from_web(
-            bot=bot,
-            order_id=order_id,
-            order=order.model_dump(),
-        )
-        log.info(f"Telegram notified, message_id={getattr(sent_msg, 'message_id', None)}")
-    except Exception:
-        log.exception("Telegram notify failed")
-
-    # если сообщение ушло, обновляем orders!Q
-    if message_id:
-        sheets = _sheets_service.spreadsheets()
-        sheets.values().update(
-            spreadsheetId=SPREADSHEET_ID,
-            range=f"orders!Q{ /* НОМЕР СТРОКИ */ }",
-            valueInputOption="RAW",
-            body={"values": [[str(message_id)]]},
-        ).execute()
-
-
-    # --- TELEGRAM ---
-    text = (
-        "🛎 <b>Новый заказ (WebApp)</b>\n\n"
-        f"🧾 ID: <code>{order_id}</code>\n"
-        f"👤 Имя: {c.name}\n"
-        f"📞 Телефон: {c.phone}\n"
-        f"💰 Сумма: {order.pricing.grandTotal} ₩"
-    )
-    log.info(f"SENDING TO BOT TOKEN PREFIX: {BOT_TOKEN[:10]}")
-    log.info("Order saved. Staff will be notified by bot job.")
     return {"ok": True, "order_id": order_id}
