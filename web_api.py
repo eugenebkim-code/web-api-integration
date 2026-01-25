@@ -214,7 +214,6 @@ async def create_order(order: OrderIn, request: Request):
     # --- TELEGRAM: notify via bot logic (with buttons) ---
     try:
         await notify_staff_from_web(
-            bot=bot,
             order_id=order_id,
             order=order.model_dump(),
         )
