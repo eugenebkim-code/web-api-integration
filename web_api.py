@@ -8,6 +8,7 @@ import logging
 import re
 from datetime import datetime
 from typing import List, Optional
+from notifications import notify_staff_from_web
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -18,7 +19,7 @@ from telegram.constants import ParseMode
 
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
-
+from config import BOT_TOKEN, STAFF_CHAT_IDS, SPREADSHEET_ID
 # -------------------------------------------------
 # BASE DIR / FILES
 # -------------------------------------------------
@@ -210,33 +211,14 @@ async def create_order(order: OrderIn, request: Request):
         "",
     ])
 
-    # TELEGRAM TEXT
-    text = (
-        "🛎 <b>Новый заказ (WebApp)</b>\n\n"
-        f"🧾 ID: <code>{order_id}</code>\n"
-        f"👤 Имя: {c.name}\n"
-        f"📞 Телефон: {c.phone}\n"
-        f"💰 Сумма: {order.pricing.grandTotal} ₩"
-    )
-
-    # TELEGRAM SEND
-    for chat_id in STAFF_CHAT_IDS:
-        try:
-            if order.screenshotBase64:
-                photo = base64.b64decode(order.screenshotBase64.split(",", 1)[-1])
-                await bot.send_photo(
-                    chat_id=chat_id,
-                    photo=photo,
-                    caption=text,
-                    parse_mode=ParseMode.HTML,
-                )
-            else:
-                await bot.send_message(
-                    chat_id=chat_id,
-                    text=text,
-                    parse_mode=ParseMode.HTML,
-                )
-        except Exception:
-            log.exception(f"Telegram notify failed for {chat_id}")
+    # --- TELEGRAM: notify via bot logic (with buttons) ---
+    try:
+        await notify_staff_from_web(
+            bot=bot,
+            order_id=order_id,
+            order=order.model_dump(),
+        )
+    except Exception:
+        log.exception("notify_staff_from_web failed")
 
     return {"ok": True, "order_id": order_id}
