@@ -32,6 +32,11 @@ ADDRESSES: Dict[int, dict] = {}
 
 #4. Models#
 
+class CourierStatusWebhook(BaseModel):
+    order_id: str
+    status: str
+    meta: Optional[dict] = None
+
 class AddressVerifyRequest(BaseModel):
     tg_id: int
     address: str
@@ -205,6 +210,48 @@ def update_order_status(order_id: str, payload: OrderStatusUpdate):
 
     # fan-out stub
     # emit_event("order_status_changed", ...)
+
+    return {"status": "ok"}
+
+# ===== Endpoint приема статуса ===== 
+
+@app.post(
+    "/api/v1/courier/status",
+    dependencies=[
+        Depends(require_api_key),
+        Depends(require_role("courier")),
+    ],
+)
+def courier_status_webhook(payload: CourierStatusWebhook):
+    order = ORDERS.get(payload.order_id)
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    courier_status = payload.status
+    mapped_status = map_courier_status_to_kitchen(courier_status)
+
+    # сохраняем raw статус всегда
+    order["courier_status_detail"] = courier_status
+    order["courier_updated_at"] = datetime.utcnow().isoformat()
+
+    if not mapped_status:
+        order["courier_last_error"] = f"Unknown courier status: {courier_status}"
+        return {"status": "ignored"}
+
+    # защита от регрессий
+    if order.get("status") == mapped_status:
+        return {"status": "ok", "idempotent": True}
+
+    order["status"] = mapped_status
+
+    if mapped_status == "delivered":
+        order["delivery_confirmed_at"] = datetime.utcnow().isoformat()
+
+        if payload.meta:
+            if "proof_image_file_id" in payload.meta:
+                order["proof_image_file_id"] = payload.meta["proof_image_file_id"]
+            if "proof_image_message_id" in payload.meta:
+                order["proof_image_message_id"] = payload.meta["proof_image_message_id"]
 
     return {"status": "ok"}
 
