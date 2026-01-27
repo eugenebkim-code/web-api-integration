@@ -60,7 +60,7 @@ class OrderCreateRequest(BaseModel):
 
 class OrderCreateResponse(BaseModel):
     status: str
-    delivery_order_id: Optional[str] = None
+    external_delivery_ref: Optional[str] = None
     already_exists: bool = False
 
 #Статус от курьерки#
@@ -168,9 +168,8 @@ def get_order(order_id: str):
 #9. Обновление статуса (курьерка)#
 
 ALLOWED_TRANSITIONS = {
-    "pending": {"accepted", "cancelled"},
-    "accepted": {"in_delivery", "cancelled"},
-    "in_delivery": {"delivered"},
+    "pending": {"confirmed", "cancelled"},
+    "confirmed": {"completed"},
 }
 
 @app.post(
