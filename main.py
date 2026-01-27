@@ -3,7 +3,7 @@ from pydantic import BaseModel
 from datetime import datetime
 from typing import Optional, Dict
 import uuid
-
+import json
 #===========1. App ===========#
 
 app = FastAPI(
@@ -29,6 +29,15 @@ def require_role(required: str):
 
 ORDERS: Dict[str, dict] = {}
 ADDRESSES: Dict[int, dict] = {}
+EVENTS_SHEET = "events"
+
+EVENTS_HEADERS = [
+    "ts",          # A
+    "event",       # B
+    "order_id",    # C
+    "payload_json" # D
+]
+
 
 #4. Models#
 
@@ -56,13 +65,11 @@ def emit_event(event_type: str, order_id: str, payload: dict | None = None):
         event = {
             "ts": datetime.utcnow().isoformat(),
             "event": event_type,
-            "order_id": order_id,
+            "order_id": str(order_id),
             "payload": payload or {},
         }
-        # В MVP просто логируем; позже подключим запись в sheets/events
-        print(f"[EVENT] {event}")
+        print("[EVENT]", event)
     except Exception:
-        # fan-out никогда не должен ломать основной флоу
         pass
 
 #Заказ#
