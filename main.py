@@ -190,13 +190,37 @@ def update_order_status(order_id: str, payload: OrderStatusUpdate):
     if new not in ALLOWED_TRANSITIONS.get(current, set()):
         raise HTTPException(status_code=409, detail="Invalid status transition")
 
-    order["status"] = new
+    mapped_status = map_courier_status_to_kitchen(new)
+
+    if not mapped_status:
+        order["courier_last_error"] = f"Unknown courier status: {new}"
+        return {"status": "ignored"}
+
+    order["courier_status_detail"] = new
+    order["status"] = mapped_status
     order["updated_at"] = datetime.utcnow().isoformat()
+
+    if mapped_status == "delivered":
+        order["delivery_confirmed_at"] = datetime.utcnow().isoformat()
 
     # fan-out stub
     # emit_event("order_status_changed", ...)
 
     return {"status": "ok"}
+
+# ===== Courier -> Kitchen status mapping =====
+
+COURIER_TO_KITCHEN_STATUS = {
+    "created": "delivery_new",
+    "courier_assigned": "delivery_in_progress",
+    "courier_departed": "delivery_in_progress",
+    "order_on_hands": "delivery_in_progress",
+    "delivered": "delivered",
+    "cancelled": "cancelled",
+}
+
+def map_courier_status_to_kitchen(courier_status: str) -> str | None:
+    return COURIER_TO_KITCHEN_STATUS.get(courier_status)
 
 #10. Заказы клиента (WebApp / курьерка)#
 
