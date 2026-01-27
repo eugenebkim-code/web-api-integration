@@ -134,7 +134,12 @@ def create_order(payload: OrderCreateRequest):
     ORDERS[payload.order_id] = {
         **payload.dict(),
         "status": "pending",
+
+        # delivery (external)
+        "delivery_provider": "external",
+        "delivery_status": "external",
         "delivery_order_id": delivery_order_id,
+
         "created_at": datetime.utcnow().isoformat(),
     }
 
