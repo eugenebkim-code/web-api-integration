@@ -49,6 +49,22 @@ class AddressVerifyResponse(BaseModel):
     outside_zone: bool
     message: str
 
+# ===== Events (fan-out base) =====
+
+def emit_event(event_type: str, order_id: str, payload: dict | None = None):
+    try:
+        event = {
+            "ts": datetime.utcnow().isoformat(),
+            "event": event_type,
+            "order_id": order_id,
+            "payload": payload or {},
+        }
+        # В MVP просто логируем; позже подключим запись в sheets/events
+        print(f"[EVENT] {event}")
+    except Exception:
+        # fan-out никогда не должен ломать основной флоу
+        pass
+
 #Заказ#
 
 class OrderCreateRequest(BaseModel):
@@ -202,11 +218,30 @@ def update_order_status(order_id: str, payload: OrderStatusUpdate):
         return {"status": "ignored"}
 
     order["courier_status_detail"] = new
-    order["status"] = mapped_status
+    
     order["updated_at"] = datetime.utcnow().isoformat()
+    
+    order["status"] = mapped_status
+
+    emit_event(
+        "delivery_status_changed",
+        payload.order_id,
+        {
+            "courier_status": courier_status,
+            "kitchen_status": mapped_status,
+        },
+    )
 
     if mapped_status == "delivered":
         order["delivery_confirmed_at"] = datetime.utcnow().isoformat()
+        emit_event(
+            "delivery_completed",
+            payload.order_id,
+            {
+                "proof_image_file_id": order.get("proof_image_file_id"),
+                "proof_image_message_id": order.get("proof_image_message_id"),
+            },
+        )
 
     # fan-out stub
     # emit_event("order_status_changed", ...)
