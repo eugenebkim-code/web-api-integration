@@ -503,11 +503,14 @@ def update_order_status(order_id: str, payload: OrderStatusUpdate):
         )
 
     # 6. fan-out уведомлений
-    fanout_delivery_status(
-        order=order,
-        courier_status=courier_status,
-        kitchen_status=mapped_status,
-    )
+    try:
+        fanout_delivery_status(
+            order=order,
+            courier_status=courier_status,
+            kitchen_status=mapped_status,
+        )
+    except Exception as e:
+        order["fanout_last_error"] = str(e)
 
     emit_event(
         "delivery_status_changed",
