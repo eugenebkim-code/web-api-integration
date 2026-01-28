@@ -3,14 +3,16 @@ from datetime import datetime
 from typing import Optional, Dict
 import uuid
 import json
-from delivery_fanout import fanout_delivery_status
-from sheets_sync import sync_delivery_status_to_kitchen
-from google.oauth2.service_account import Credentials
-from googleapiclient.discovery import build
 import os
-from delivery_fsm import is_valid_transition, is_final
+
 from pydantic import BaseModel
 
+from delivery_fanout import fanout_delivery_status
+from sheets_sync import sync_delivery_status_to_kitchen
+from delivery_fsm import is_valid_transition, is_final
+from google.oauth2.service_account import Credentials
+from googleapiclient.discovery import build
+from courier_adapter import create_courier_order
 
 SERVICE_ACCOUNT_FILE = os.getenv("GOOGLE_SERVICE_ACCOUNT_FILE", "service_account.json")
 
@@ -139,6 +141,9 @@ class OrderCreateResponse(BaseModel):
 class OrderStatusUpdate(BaseModel):
     status: str
 
+class PickupETARequest(BaseModel):
+    pickup_eta_at: datetime
+    source: str = "preset"
 
 #5. Геокодинг и зоны (STUB)#
 def geocode_address(address: str):
@@ -200,6 +205,7 @@ def check_address(payload: AddressCheckRequest):
     ],
 )
 async def create_order(payload: OrderCreateRequest):
+    print(">>> USING create_courier_order FROM", create_courier_order.__module__)
     # 1. idempotency
     if payload.order_id in ORDERS:
         return OrderCreateResponse(
@@ -230,6 +236,7 @@ async def create_order(payload: OrderCreateRequest):
         }
 
         try:
+            print(">>> USING create_courier_order FROM", create_courier_order.__module__)
             delivery_order_id = await create_courier_order(courier_payload)
             delivery_provider = "courier"
         except Exception:
@@ -276,6 +283,63 @@ async def create_order(payload: OrderCreateRequest):
         external_delivery_ref=delivery_order_id,
         already_exists=False,
     )
+
+@app.post(
+    "/api/v1/orders/{order_id}/pickup_eta",
+    dependencies=[
+        Depends(require_api_key),
+        Depends(require_role("kitchen")),
+    ],
+)
+async def set_pickup_eta(order_id: str, payload: PickupETARequest):
+    print(">>> USING create_courier_order FROM", create_courier_order.__module__)
+    order = ORDERS.get(order_id)
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    # защита от повторов
+    if order.get("pickup_eta_at"):
+        return {"status": "ok", "already_set": True}
+
+    # фиксируем ETA
+    order["pickup_eta_at"] = payload.pickup_eta_at.isoformat()
+    order["pickup_eta_source"] = payload.source
+
+    # решение кухни
+    order["courier_decision"] = "requested"
+    order["status"] = "courier_requested"
+
+    # формируем payload для курьерки
+    courier_payload = {
+        "order_id": order["order_id"],
+        "source": order["source"],
+        "client_tg_id": order["client_tg_id"],
+        "client_name": order["client_name"],
+        "client_phone": order["client_phone"],
+        "pickup_address": order["pickup_address"],
+        "delivery_address": order["delivery_address"],
+        "pickup_eta_at": order["pickup_eta_at"],
+        "city": order["city"],
+        "comment": order.get("comment"),
+    }
+
+    try:
+        print(">>> USING create_courier_order FROM", create_courier_order.__module__)
+        delivery_order_id = await create_courier_order(courier_payload)
+    except Exception:
+        raise HTTPException(
+            status_code=503,
+            detail="Courier service unavailable",
+        )
+
+    order["delivery_provider"] = "courier"
+    order["delivery_order_id"] = delivery_order_id
+
+    return {
+        "status": "ok",
+        "delivery_order_id": delivery_order_id,
+    }
+
 
 #8. Получение заказа (курьерка)#
 
@@ -481,11 +545,12 @@ def update_order_status(order_id: str, payload: OrderStatusUpdate):
 )
 
 def courier_status_webhook(payload: CourierStatusWebhook):
-    if order.get("courier_decision") == "not_requested":
-        return {"status": "ignored", "reason": "courier_not_requested"}
     order = ORDERS.get(payload.order_id)
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
+
+    if order.get("courier_decision") == "not_requested":
+        return {"status": "ignored", "reason": "courier_not_requested"}
 
     courier_status = payload.status
 
