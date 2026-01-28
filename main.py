@@ -200,7 +200,7 @@ def check_address(payload: AddressCheckRequest):
     ],
 )
 async def create_order(payload: OrderCreateRequest):
-    # idempotency
+    # 1. idempotency
     if payload.order_id in ORDERS:
         return OrderCreateResponse(
             status="ok",
@@ -208,39 +208,61 @@ async def create_order(payload: OrderCreateRequest):
             already_exists=True,
         )
 
-    # STUB delivery id
-    # формируем payload для курьерки
-    courier_payload = {
-        "order_id": payload.order_id,
-        "source": payload.source,
-        "client_tg_id": payload.client_tg_id,
-        "client_name": payload.client_name,
-        "client_phone": payload.client_phone,
-        "pickup_address": payload.pickup_address,
-        "delivery_address": payload.delivery_address,
-        "pickup_eta_at": payload.pickup_eta_at.isoformat(),
-        "city": payload.city,
-        "comment": payload.comment,
-    }
+    # 2. определяем решение кухни
+    courier_requested = payload.pickup_eta_at is not None
 
-    try:
-        delivery_order_id = await create_courier_order(courier_payload)
-        delivery_provider = "courier"
-    except Exception:
-        # курьерка недоступна — заказ НЕ создаем
-        raise HTTPException(
-            status_code=503,
-            detail="Courier service unavailable",
-        )
+    delivery_order_id = None
+    delivery_provider = None
 
+    # 3. если курьер нужен — дергаем курьерку
+    if courier_requested:
+        courier_payload = {
+            "order_id": payload.order_id,
+            "source": payload.source,
+            "client_tg_id": payload.client_tg_id,
+            "client_name": payload.client_name,
+            "client_phone": payload.client_phone,
+            "pickup_address": payload.pickup_address,
+            "delivery_address": payload.delivery_address,
+            "pickup_eta_at": payload.pickup_eta_at.isoformat(),
+            "city": payload.city,
+            "comment": payload.comment,
+        }
+
+        try:
+            delivery_order_id = await create_courier_order(courier_payload)
+            delivery_provider = "courier"
+        except Exception:
+            # курьерка недоступна — заказ НЕ создаем
+            raise HTTPException(
+                status_code=503,
+                detail="Courier service unavailable",
+            )
+
+    # 4. сохраняем заказ в Web API
     ORDERS[payload.order_id] = {
         **payload.dict(),
-        "status": "delivery_new",
+
+        # решение кухни
+        "courier_decision": (
+            "requested" if courier_requested else "not_requested"
+        ),
+
+        # статус заказа в Web API
+        "status": (
+            "courier_requested"
+            if courier_requested
+            else "courier_not_requested"
+        ),
+
+        # доставка
         "delivery_provider": delivery_provider,
         "delivery_order_id": delivery_order_id,
+
         "created_at": datetime.utcnow().isoformat(),
     }
 
+    # 5. ответ (контракт сохранен)
     return OrderCreateResponse(
         status="ok",
         external_delivery_ref=delivery_order_id,
