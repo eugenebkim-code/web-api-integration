@@ -1,5 +1,4 @@
 from fastapi import FastAPI, Header, HTTPException, Depends
-from pydantic import BaseModel
 from datetime import datetime
 from typing import Optional, Dict
 import uuid
@@ -10,6 +9,8 @@ from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 import os
 from delivery_fsm import is_valid_transition, is_final
+from pydantic import BaseModel
+
 
 SERVICE_ACCOUNT_FILE = os.getenv("GOOGLE_SERVICE_ACCOUNT_FILE", "service_account.json")
 
@@ -151,33 +152,41 @@ def check_zone(lat: float, lng: float):
         "distance_km": 3.2,
         "outside_zone": False,
     }
-#6. Адрес: verify#
+#6. Address check (STUB) #
+
+class AddressCheckRequest(BaseModel):
+    city: str
+    address: str
+
+class AddressCheckResponse(BaseModel):
+    ok: bool
+    normalized_address: str
+    zone: Optional[str] = None
+    message: Optional[str] = None
+
 
 @app.post(
-    "/api/v1/address/verify",
-    response_model=AddressVerifyResponse,
+    "/api/v1/address/check",
+    response_model=AddressCheckResponse,
     dependencies=[Depends(require_api_key)],
 )
-def verify_address(payload: AddressVerifyRequest):
-    lat, lng = geocode_address(payload.address)
-    zone_info = check_zone(lat, lng)
+def check_address(payload: AddressCheckRequest):
+    # STUB MVP: позже подключим geocode + зоны
+    normalized = (payload.address or "").strip()
 
-    ADDRESSES[payload.tg_id] = {
-        "address": payload.address,
-        "lat": lat,
-        "lng": lng,
-        "verified": True,
-        "verified_at": datetime.utcnow().isoformat(),
-        **zone_info,
-    }
+    if not normalized:
+        return AddressCheckResponse(
+            ok=False,
+            normalized_address="",
+            zone=None,
+            message="Пустой адрес",
+        )
 
-    return AddressVerifyResponse(
-        status="ok",
-        verified=True,
-        zone=zone_info["zone"],
-        distance_km=zone_info["distance_km"],
-        outside_zone=zone_info["outside_zone"],
-        message="Адрес проверен",
+    return AddressCheckResponse(
+        ok=True,
+        normalized_address=normalized,
+        zone="STUB_ZONE",
+        message="Адрес проверен (stub)",
     )
 
 #7. Создание заказа (idempotent)#
@@ -190,7 +199,7 @@ def verify_address(payload: AddressVerifyRequest):
         Depends(require_role("kitchen")),
     ],
 )
-def create_order(payload: OrderCreateRequest):
+async def create_order(payload: OrderCreateRequest):
     # idempotency
     if payload.order_id in ORDERS:
         return OrderCreateResponse(
@@ -199,17 +208,36 @@ def create_order(payload: OrderCreateRequest):
             already_exists=True,
         )
 
-    delivery_order_id = f"courier-{uuid.uuid4()}"
+    # STUB delivery id
+    # формируем payload для курьерки
+    courier_payload = {
+        "order_id": payload.order_id,
+        "source": payload.source,
+        "client_tg_id": payload.client_tg_id,
+        "client_name": payload.client_name,
+        "client_phone": payload.client_phone,
+        "pickup_address": payload.pickup_address,
+        "delivery_address": payload.delivery_address,
+        "pickup_eta_at": payload.pickup_eta_at.isoformat(),
+        "city": payload.city,
+        "comment": payload.comment,
+    }
+
+    try:
+        delivery_order_id = await create_courier_order(courier_payload)
+        delivery_provider = "courier"
+    except Exception:
+        # курьерка недоступна — заказ НЕ создаем
+        raise HTTPException(
+            status_code=503,
+            detail="Courier service unavailable",
+        )
 
     ORDERS[payload.order_id] = {
         **payload.dict(),
         "status": "delivery_new",
-
-        # delivery (external)
-        "delivery_provider": "external",
-        "delivery_status": "external",
+        "delivery_provider": delivery_provider,
         "delivery_order_id": delivery_order_id,
-
         "created_at": datetime.utcnow().isoformat(),
     }
 
