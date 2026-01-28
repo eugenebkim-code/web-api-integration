@@ -9,6 +9,7 @@ from sheets_sync import sync_delivery_status_to_kitchen
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 import os
+from delivery_fsm import is_valid_transition, is_final
 
 SERVICE_ACCOUNT_FILE = os.getenv("GOOGLE_SERVICE_ACCOUNT_FILE", "service_account.json")
 
@@ -202,7 +203,7 @@ def create_order(payload: OrderCreateRequest):
 
     ORDERS[payload.order_id] = {
         **payload.dict(),
-        "status": "pending",
+        "status": "delivery_new",
 
         # delivery (external)
         "delivery_provider": "external",
@@ -259,7 +260,15 @@ def update_order_status(order_id: str, payload: OrderStatusUpdate):
     )
 
     courier_status = payload.status
-    current_status = order.get("status")
+    raw_current_status = order.get("status")
+    current_status = raw_current_status
+
+    # === важно: фиксируем первый courier-апдейт ===
+    first_courier_update = "courier_updated_at" not in order
+
+    # pending — технический статус Web API, FSM его не видит
+    if current_status == "pending":
+        current_status = None
 
     # 2. всегда сохраняем raw courier-статус
     order["courier_status_detail"] = courier_status
@@ -267,10 +276,11 @@ def update_order_status(order_id: str, payload: OrderStatusUpdate):
 
     # 3. маппинг статуса
     mapped_status = map_courier_status_to_kitchen(courier_status)
+    from delivery_fsm import is_valid_transition, is_final
 
+    # 1) неизвестный статус курьерки
     if not mapped_status:
         order["courier_last_error"] = f"Unknown courier status: {courier_status}"
-
         emit_event(
             "delivery_status_unknown",
             order_id,
@@ -278,22 +288,89 @@ def update_order_status(order_id: str, payload: OrderStatusUpdate):
         )
         return {"status": "ok"}
 
-    # 4. защита от регрессий
-    if mapped_status == current_status:
+    # 2) idempotent (НО не для первого courier-апдейта)
+    if mapped_status == current_status and not first_courier_update:
         return {"status": "ok", "idempotent": True}
 
-    # 5. sync в Sheets кухни (ТОЛЬКО если курьер реально вызывался)
-    if order.get("delivery_order_id"):
+    # 3) финальные состояния immutable (кроме idempotent, он уже выше)
+    if is_final(current_status):
+        emit_event(
+            "delivery_status_ignored_final",
+            order_id,
+            {
+                "current": current_status,
+                "incoming": mapped_status,
+                "courier_status": courier_status,
+            },
+        )
+        return {"status": "ok", "final": True}
+
+    # 4) FSM-проверка допустимости перехода
+    if not is_valid_transition(current_status, mapped_status):
+        order["courier_last_error"] = (
+            f"Invalid transition {current_status} -> {mapped_status}"
+        )
+
+        emit_event(
+            "delivery_status_rejected",
+            order_id,
+            {
+                "current": current_status,
+                "incoming": mapped_status,
+                "courier_status": courier_status,
+            },
+        )
+
+        delivery_external_id = order.get("delivery_order_id")
+        if delivery_external_id:
+            sync_delivery_status_to_kitchen(
+                sheets=get_sheets_service_safe(),
+                spreadsheet_id=get_kitchen_spreadsheet_id(order["kitchen_id"]),
+                order_id=order_id,
+                delivery_state=raw_current_status,
+                courier_status_raw=courier_status,
+                courier_external_id=delivery_external_id,
+                courier_last_error=order["courier_last_error"],
+            )
+
         
+        # 4.5) первый courier-апдейт — всегда sync (даже без delivery_order_id)
+        if current_status is None:
+            sync_delivery_status_to_kitchen(
+                sheets=get_sheets_service_safe(),
+                spreadsheet_id=get_kitchen_spreadsheet_id(order["kitchen_id"]),
+                order_id=order_id,
+                delivery_state=mapped_status,
+                courier_status_raw=courier_status,
+                courier_external_id=order.get("delivery_order_id"),  # может быть None
+                courier_status_detail=order.get("courier_status_detail"),
+                courier_last_error=order.get("courier_last_error"),
+            )
+        return {"status": "ok", "rejected": True}
+    # ===== HAPPY PATH =====
+
+    # 5) применяем новый статус
+    order["status"] = mapped_status
+    order["updated_at"] = datetime.utcnow().isoformat()
+
+    delivery_external_id = order.get("delivery_order_id")
+
+    # первый courier-апдейт ВСЕГДА синкаем
+    if current_status is None or delivery_external_id:
         sync_delivery_status_to_kitchen(
             sheets=get_sheets_service_safe(),
             spreadsheet_id=get_kitchen_spreadsheet_id(order["kitchen_id"]),
             order_id=order_id,
             delivery_state=mapped_status,
             courier_status_raw=courier_status,
-            courier_external_id=order.get("delivery_order_id"),
+            courier_external_id=delivery_external_id,  # может быть None — это ОК
             courier_status_detail=order.get("courier_status_detail"),
             courier_last_error=order.get("courier_last_error"),
+            delivery_confirmed_at=(
+                datetime.utcnow().isoformat()
+                if mapped_status == "delivered"
+                else None
+            ),
         )
 
     # 6. fan-out уведомлений
@@ -303,21 +380,18 @@ def update_order_status(order_id: str, payload: OrderStatusUpdate):
         kitchen_status=mapped_status,
     )
 
-    # 7. применяем новый статус
-    order["status"] = mapped_status
-    order["updated_at"] = datetime.utcnow().isoformat()
-
     emit_event(
         "delivery_status_changed",
         order_id,
         {
+            "from": raw_current_status,
+            "to": mapped_status,
             "courier_status": courier_status,
-            "kitchen_status": mapped_status,
         },
     )
 
-    # 8. delivered — финал
-    if mapped_status == "delivered":
+    # 7. delivered — финал (один раз)
+    if mapped_status == "delivered" and not order.get("delivery_confirmed_at"):
         order["delivery_confirmed_at"] = datetime.utcnow().isoformat()
 
         emit_event(
