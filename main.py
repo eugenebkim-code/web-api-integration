@@ -233,7 +233,6 @@ async def create_order(payload: OrderCreateRequest):
             delivery_order_id = await create_courier_order(courier_payload)
             delivery_provider = "courier"
         except Exception:
-            # курьерка недоступна — заказ НЕ создаем
             raise HTTPException(
                 status_code=503,
                 detail="Courier service unavailable",
@@ -243,26 +242,35 @@ async def create_order(payload: OrderCreateRequest):
     ORDERS[payload.order_id] = {
         **payload.dict(),
 
-        # решение кухни
         "courier_decision": (
             "requested" if courier_requested else "not_requested"
         ),
 
-        # статус заказа в Web API
         "status": (
             "courier_requested"
             if courier_requested
             else "courier_not_requested"
         ),
 
-        # доставка
         "delivery_provider": delivery_provider,
         "delivery_order_id": delivery_order_id,
 
         "created_at": datetime.utcnow().isoformat(),
     }
 
-    # 5. ответ (контракт сохранен)
+    if not courier_requested:
+        sync_delivery_status_to_kitchen(
+            sheets=get_sheets_service_safe(),
+            spreadsheet_id=get_kitchen_spreadsheet_id(payload.kitchen_id),
+            order_id=payload.order_id,
+            delivery_state="courier_not_requested",
+            courier_status_raw="not_requested",
+            courier_external_id=None,
+            courier_status_detail="courier_not_requested",
+            courier_last_error=None,
+        )
+
+    # 5. ответ
     return OrderCreateResponse(
         status="ok",
         external_delivery_ref=delivery_order_id,
