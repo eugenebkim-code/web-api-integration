@@ -1,12 +1,20 @@
 import httpx
 import os
+import uuid
 
 COURIER_API_URL = os.getenv("COURIER_API_URL", "http://127.0.0.1:9000")
 COURIER_API_KEY = os.getenv("COURIER_API_KEY", "DEV_KEY")
+COURIER_STUB = os.getenv("COURIER_STUB", "true").lower() == "true"
+
 
 async def create_courier_order(payload: dict) -> str:
     print("USING create_courier_order FROM courier_adapter")
 
+    # === DEV / TEST MODE ===
+    if COURIER_STUB:
+        return f"stub-{uuid.uuid4()}"
+
+    # === REAL COURIER ===
     timeout = httpx.Timeout(5.0, connect=3.0)
 
     async with httpx.AsyncClient(timeout=timeout) as client:
@@ -25,8 +33,8 @@ async def create_courier_order(payload: dict) -> str:
         )
 
     data = resp.json()
-
     delivery_order_id = data.get("delivery_order_id")
+
     if not delivery_order_id:
         raise RuntimeError("Courier response missing delivery_order_id")
 

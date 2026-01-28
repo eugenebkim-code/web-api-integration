@@ -381,6 +381,13 @@ def update_order_status(order_id: str, payload: OrderStatusUpdate):
             "reason": "courier_not_requested",
         }
 
+    # защита от апдейтов не от курьерки
+    if order.get("delivery_provider") != "courier":
+        return {
+            "status": "ignored",
+            "reason": "not_managed_by_courier",
+        }
+
     print(
         "[DEBUG] updating order",
         order_id,
