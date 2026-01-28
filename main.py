@@ -125,7 +125,7 @@ class OrderCreateRequest(BaseModel):
     client_phone: str
     pickup_address: str
     delivery_address: str
-    pickup_eta_at: datetime
+    pickup_eta_at: Optional[datetime] = None
     city: str
     comment: Optional[str] = None
 
@@ -305,10 +305,17 @@ def get_order(order_id: str):
 )
 def update_order_status(order_id: str, payload: OrderStatusUpdate):
 
-    # 1. получаем заказ
+    # 1️⃣ сначала получаем заказ
     order = ORDERS.get(order_id)
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
+
+    # 2️⃣ защита: курьер не вызывался
+    if order.get("courier_decision") == "not_requested":
+        return {
+            "status": "ignored",
+            "reason": "courier_not_requested",
+        }
 
     print(
         "[DEBUG] updating order",
@@ -474,6 +481,8 @@ def update_order_status(order_id: str, payload: OrderStatusUpdate):
 )
 
 def courier_status_webhook(payload: CourierStatusWebhook):
+    if order.get("courier_decision") == "not_requested":
+        return {"status": "ignored", "reason": "courier_not_requested"}
     order = ORDERS.get(payload.order_id)
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
