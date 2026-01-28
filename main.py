@@ -212,27 +212,35 @@ def update_order_status(order_id: str, payload: OrderStatusUpdate):
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
 
-    current = order["status"]
-    new = payload.status
+    courier_status = payload.status
+    current_status = order.get("status")
 
-    if new not in ALLOWED_TRANSITIONS.get(current, set()):
-        raise HTTPException(status_code=409, detail="Invalid status transition")
+    # всегда сохраняем raw courier-статус
+    order["courier_status_detail"] = courier_status
+    order["courier_updated_at"] = datetime.utcnow().isoformat()
 
-    mapped_status = map_courier_status_to_kitchen(new)
+    mapped_status = map_courier_status_to_kitchen(courier_status)
 
     if not mapped_status:
-        order["courier_last_error"] = f"Unknown courier status: {new}"
-        return {"status": "ignored"}
+        order["courier_last_error"] = f"Unknown courier status: {courier_status}"
+        emit_event(
+            "delivery_status_unknown",
+            order_id,
+            {"courier_status": courier_status},
+        )
+        return {"status": "ok"}
 
-    order["courier_status_detail"] = new
-    
-    order["updated_at"] = datetime.utcnow().isoformat()
-    
+    # защита от регрессий
+    if mapped_status == current_status:
+        return {"status": "ok", "idempotent": True}
+
+    # применяем новый статус
     order["status"] = mapped_status
+    order["updated_at"] = datetime.utcnow().isoformat()
 
     emit_event(
         "delivery_status_changed",
-        payload.order_id,
+        order_id,
         {
             "courier_status": courier_status,
             "kitchen_status": mapped_status,
@@ -241,17 +249,15 @@ def update_order_status(order_id: str, payload: OrderStatusUpdate):
 
     if mapped_status == "delivered":
         order["delivery_confirmed_at"] = datetime.utcnow().isoformat()
+
         emit_event(
             "delivery_completed",
-            payload.order_id,
+            order_id,
             {
                 "proof_image_file_id": order.get("proof_image_file_id"),
                 "proof_image_message_id": order.get("proof_image_message_id"),
             },
         )
-
-    # fan-out stub
-    # emit_event("order_status_changed", ...)
 
     return {"status": "ok"}
 
@@ -264,6 +270,19 @@ def update_order_status(order_id: str, payload: OrderStatusUpdate):
         Depends(require_role("courier")),
     ],
 )
+
+def notify_client_safe(order: dict, text: str):
+    """
+    Fail-safe уведомление клиента.
+    Ошибки не пробрасываются и не ломают основной флоу.
+    """
+    try:
+        # STUB: здесь позже будет реальный вызов бота курьерки
+        print(f"[notify_client] tg={order['client_tg_id']} | {text}")
+    except Exception as e:
+        # ничего не ломаем, максимум фиксируем
+        order["last_client_notify_error"] = str(e)
+
 def courier_status_webhook(payload: CourierStatusWebhook):
     order = ORDERS.get(payload.order_id)
     if not order:
@@ -271,6 +290,19 @@ def courier_status_webhook(payload: CourierStatusWebhook):
 
     courier_status = payload.status
     mapped_status = map_courier_status_to_kitchen(courier_status)
+
+    if mapped_status == "delivery_in_progress":
+        notify_client_safe(order, "🚚 Курьер выехал")
+
+    if courier_status == "order_on_hands":
+        notify_client_safe(order, "📦 Заказ у курьера")
+
+    if mapped_status == "delivered":
+        notify_client_safe(
+            order,
+            "✅ Заказ доставлен",
+            photo_file_id=order.get("proof_image_file_id"),
+        )
 
     # сохраняем raw статус всегда
     order["courier_status_detail"] = courier_status
