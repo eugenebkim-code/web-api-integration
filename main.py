@@ -125,7 +125,7 @@ def emit_event(event_type: str, order_id: str, payload: dict | None = None):
 class OrderCreateRequest(BaseModel):
     order_id: str
     source: str
-    kitchen_id: int
+    kitchen_id: Optional[int] = None  # STUB: allow default kitchen
     client_tg_id: int
     client_name: str
     client_phone: str
@@ -208,6 +208,10 @@ def check_address(payload: AddressCheckRequest):
 )
 async def create_order(payload: OrderCreateRequest):
     print(">>> USING create_courier_order FROM", create_courier_order.__module__)
+    # STUB: default kitchen_id
+    if payload.kitchen_id is None:
+        payload.kitchen_id = 1
+    
     # 1. idempotency
     if payload.order_id in ORDERS:
         return OrderCreateResponse(
