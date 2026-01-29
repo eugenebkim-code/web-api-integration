@@ -1,7 +1,7 @@
 import httpx
 import os
 
-COURIER_API_URL = os.getenv("COURIER_API_URL", "http://127.0.0.1:9000")
+COURIER_API_URL = "http://127.0.0.1:9000"
 COURIER_API_KEY = os.getenv("COURIER_API_KEY", "DEV_KEY")
 
 async def create_courier_order(payload: dict) -> str:
@@ -10,12 +10,24 @@ async def create_courier_order(payload: dict) -> str:
     timeout = httpx.Timeout(5.0, connect=3.0)
 
     async with httpx.AsyncClient(timeout=timeout) as client:
+        courier_payload = {
+            "order_id": payload["order_id"],
+            "source": payload["source"],
+            "client_tg_id": payload["client_tg_id"],
+            "client_name": payload["client_name"],
+            "client_phone": payload["client_phone"],
+            "pickup_address": payload["pickup_address"],
+            "delivery_address": payload["delivery_address"],
+            "pickup_eta_at": payload["pickup_eta_at"],
+            "city": payload["city"],
+            "comment": payload.get("comment"),
+        }
+
         resp = await client.post(
             f"{COURIER_API_URL}/api/v1/orders",
-            json=payload,
+            json=courier_payload,
             headers={
                 "X-API-KEY": COURIER_API_KEY,
-                "X-ROLE": "integration",
             },
         )
 

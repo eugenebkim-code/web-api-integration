@@ -60,6 +60,31 @@ def sync_delivery_status_to_kitchen(
                 break
 
         if not target_row:
+            # === CREATE NEW ROW (APPEND) ===
+            now = datetime.utcnow().isoformat()
+
+            new_row = [
+                order_id,            # A order_id
+                "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
+                delivery_state,      # T
+                courier_status_raw,  # U
+                courier_external_id or "",  # V
+                "",                  # W (reserved)
+                courier_status_detail or "",# X
+                courier_last_error or "",   # Y
+                courier_sent_at or now,     # Z
+                delivery_confirmed_at or "",# AA
+            ]
+
+            sheets.values().append(
+                spreadsheetId=spreadsheet_id,
+                range=f"{ORDERS_SHEET}!A:AA",
+                valueInputOption="RAW",
+                insertDataOption="INSERT_ROWS",
+                body={"values": [new_row]},
+            ).execute()
+
+            print(f"[sheets_sync] appended new row for order {order_id}")
             return
 
         now = datetime.utcnow().isoformat()
