@@ -274,7 +274,20 @@ async def create_order(payload: OrderCreateRequest):
 
         "created_at": datetime.utcnow().isoformat(),
     }
-
+    # ===== PATCH 3: minimal Sheets sync (CREATE) =====
+    try:
+        sync_delivery_status_to_kitchen(
+            sheets=get_sheets_service_safe(),
+            spreadsheet_id=get_kitchen_spreadsheet_id(payload.kitchen_id),
+            order_id=payload.order_id,
+            delivery_state="created",
+            courier_status_raw="created",
+            courier_external_id=delivery_order_id,
+            courier_status_detail="created",
+            courier_last_error=None,
+        )
+    except Exception as e:
+        print("[SHEETS ERROR][CREATE]", str(e))
     if not courier_requested:
         sync_delivery_status_to_kitchen(
             sheets=get_sheets_service_safe(),
