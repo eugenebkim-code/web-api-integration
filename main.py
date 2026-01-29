@@ -48,6 +48,10 @@ KITCHENS_REGISTRY = {
     }
 }
 
+# ===== Delivery price stub (MVP) =====
+MIN_DELIVERY_PRICE_KRW = 4000
+DELIVERY_PRICE_SOURCE = "stub_min_tariff"
+
 #===========1. App ===========#
 
 app = FastAPI(
@@ -176,22 +180,20 @@ class AddressCheckResponse(BaseModel):
     dependencies=[Depends(require_api_key)],
 )
 def check_address(payload: AddressCheckRequest):
-    # STUB MVP: позже подключим geocode + зоны
-    normalized = (payload.address or "").strip()
+    """
+    STUB v0:
+    - любой адрес считается корректным
+    - всегда inside zone
+    - ничего не блокируем
+    """
 
-    if not normalized:
-        return AddressCheckResponse(
-            ok=False,
-            normalized_address="",
-            zone=None,
-            message="Пустой адрес",
-        )
+    normalized = (payload.address or "").strip()
 
     return AddressCheckResponse(
         ok=True,
         normalized_address=normalized,
         zone="STUB_ZONE",
-        message="Адрес проверен (stub)",
+        message="Адрес принят (stub)",
     )
 
 #7. Создание заказа (idempotent)#
@@ -258,6 +260,10 @@ async def create_order(payload: OrderCreateRequest):
             if courier_requested
             else "courier_not_requested"
         ),
+
+        # ===== delivery price (STUB) =====
+        "delivery_price_krw": MIN_DELIVERY_PRICE_KRW,
+        "delivery_price_source": DELIVERY_PRICE_SOURCE,
 
         "delivery_provider": delivery_provider,
         "delivery_order_id": delivery_order_id,
