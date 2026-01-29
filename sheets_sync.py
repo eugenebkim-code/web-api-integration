@@ -15,6 +15,22 @@ COL_DELIVERY_CONFIRMED_AT = "AA"
 def _norm(s: str | None) -> str:
     return (s or "").strip()
 
+def map_courier_status_to_delivery_state(courier_status_raw: str) -> str | None:
+    """
+    Stable mapping from courier raw status to kitchen delivery_state.
+    Unknown statuses MUST NOT break the flow.
+    """
+
+    mapping = {
+        "created": "courier_requested",
+        "courier_requested": "courier_requested",
+        "courier_assigned": "courier_assigned",
+        "courier_departed": "delivery_in_progress",
+        "courier_delivered": "delivered",
+        "rejected": "rejected",
+    }
+
+    return mapping.get((courier_status_raw or "").strip())
 
 def sync_delivery_status_to_kitchen(
     sheets,

@@ -274,33 +274,7 @@ async def create_order(payload: OrderCreateRequest):
 
         "created_at": datetime.utcnow().isoformat(),
     }
-    # ===== PATCH 3: minimal Sheets sync (CREATE) =====
-    print("[SHEETS DEBUG] about to sync order", payload.order_id)
-
-    sync_delivery_status_to_kitchen(
-        sheets=get_sheets_service_safe(),
-        spreadsheet_id=get_kitchen_spreadsheet_id(payload.kitchen_id),
-        order_id=payload.order_id,
-        delivery_state="created",
-        courier_status_raw="created",
-        courier_external_id=delivery_order_id,
-        courier_status_detail="created",
-        courier_last_error=None,
-    )
-
-    print("[SHEETS DEBUG] sync finished for", payload.order_id)
-    if not courier_requested:
-        sync_delivery_status_to_kitchen(
-            sheets=get_sheets_service_safe(),
-            spreadsheet_id=get_kitchen_spreadsheet_id(payload.kitchen_id),
-            order_id=payload.order_id,
-            delivery_state="courier_not_requested",
-            courier_status_raw="not_requested",
-            courier_external_id=None,
-            courier_status_detail="courier_not_requested",
-            courier_last_error=None,
-        )
-
+    
     # 5. ответ
     return OrderCreateResponse(
         status="ok",
@@ -481,31 +455,17 @@ def update_order_status(order_id: str, payload: OrderStatusUpdate):
             },
         )
 
-        delivery_external_id = order.get("delivery_order_id")
-        if delivery_external_id:
-            sync_delivery_status_to_kitchen(
-                sheets=get_sheets_service_safe(),
-                spreadsheet_id=get_kitchen_spreadsheet_id(order["kitchen_id"]),
-                order_id=order_id,
-                delivery_state=raw_current_status,
-                courier_status_raw=courier_status,
-                courier_external_id=delivery_external_id,
-                courier_last_error=order["courier_last_error"],
-            )
-
-        
-        # 4.5) первый courier-апдейт — всегда sync (даже без delivery_order_id)
-        if current_status is None:
-            sync_delivery_status_to_kitchen(
-                sheets=get_sheets_service_safe(),
-                spreadsheet_id=get_kitchen_spreadsheet_id(order["kitchen_id"]),
-                order_id=order_id,
-                delivery_state=mapped_status,
-                courier_status_raw=courier_status,
-                courier_external_id=order.get("delivery_order_id"),  # может быть None
-                courier_status_detail=order.get("courier_status_detail"),
-                courier_last_error=order.get("courier_last_error"),
-            )
+        # === FINAL SYNC TO SHEETS ===
+        sync_delivery_status_to_kitchen(
+            sheets=get_sheets_service_safe(),
+            spreadsheet_id=get_kitchen_spreadsheet_id(order["kitchen_id"]),
+            order_id=order_id,
+            delivery_state=mapped_status,
+            courier_status_raw=courier_status,
+            courier_external_id=order.get("delivery_order_id"),
+            courier_status_detail=order.get("courier_status_detail"),
+            courier_last_error=order.get("courier_last_error"),
+        )
         return {"status": "ok", "rejected": True}
     # ===== HAPPY PATH =====
 
