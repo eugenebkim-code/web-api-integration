@@ -2,7 +2,7 @@ import httpx
 import os
 
 COURIER_API_URL = "http://127.0.0.1:9000"
-COURIER_API_KEY = os.getenv("COURIER_API_KEY", "DEV_KEY")
+API_KEY = os.getenv("API_KEY", "DEV_KEY")
 
 async def create_courier_order(payload: dict) -> str:
     print("USING create_courier_order FROM courier_adapter")
@@ -27,7 +27,7 @@ async def create_courier_order(payload: dict) -> str:
             f"{COURIER_API_URL}/api/v1/orders",
             json=courier_payload,
             headers={
-                "X-API-KEY": COURIER_API_KEY,
+                "X-API-KEY": API_KEY,
             },
         )
 
