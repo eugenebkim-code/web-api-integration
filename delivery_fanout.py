@@ -1,3 +1,5 @@
+#delivery_fanout.py
+
 import logging
 from notifications import notify_kitchen_safe, notify_client_safe
 
@@ -5,34 +7,51 @@ log = logging.getLogger("delivery_fanout")
 
 
 def fanout_delivery_status(
+    *,
     order: dict,
     courier_status: str,
     kitchen_status: str,
 ):
     """
-    Fan-out уведомлений по изменению доставки.
-    Никаких исключений наружу.
+    Единственная точка fan-out уведомлений о доставке.
+    Web API сообщает ФАКТЫ, не UI.
     """
+
     try:
-        # кухня всегда получает факт изменения
+        order_id = order.get("order_id")
+
+        # --- кухня всегда получает факт изменения ---
         notify_kitchen_safe(
             order,
-            f"Статус доставки: {kitchen_status}",
+            f"Заказ {order_id}\nСтатус доставки: {kitchen_status}",
         )
 
-        # клиентские уведомления
-        if kitchen_status == "delivery_in_progress":
-            notify_client_safe(order, "🚚 Курьер выехал")
-
-        if courier_status == "order_on_hands":
-            notify_client_safe(order, "📦 Заказ у курьера")
-
-        if kitchen_status == "delivered":
+        # --- клиентские уведомления ---
+        if courier_status == "courier_assigned":
             notify_client_safe(
                 order,
-                "✅ Заказ доставлен",
+                "🚚 Курьер назначен. Мы готовимся к доставке.",
+            )
+
+        elif courier_status == "courier_departed":
+            notify_client_safe(
+                order,
+                "🚚 Курьер выехал.",
+            )
+
+        elif courier_status == "order_on_hands":
+            notify_client_safe(
+                order,
+                "📦 Заказ забран курьером.",
+            )
+
+        elif kitchen_status == "delivered":
+            notify_client_safe(
+                order,
+                "✅ Заказ доставлен.",
                 photo_file_id=order.get("proof_image_file_id"),
             )
 
     except Exception as e:
-        log.exception(f"fanout failed: {e}")
+        # fail-safe: уведомления не ломают основной поток
+        log.exception(f"fanout_delivery_status failed: {e}")

@@ -38,20 +38,40 @@ def send_telegram_message(chat_id: int, text: str):
         log.exception(f"Telegram send exception chat_id={chat_id}: {e}")
 
 def notify_kitchen_safe(order: dict, text: str):
+    """
+    Уведомление кухни.
+    Ошибки не ломают основной поток.
+    """
     try:
-        # STUB: позже здесь будет реальный бот кухни
-        print(f"[notify_kitchen] order={order['order_id']} | {text}")
+        # STUB: позже реальный бот кухни
+        print(f"[notify_kitchen] order={order.get('order_id')} | {text}")
     except Exception as e:
         log.warning(f"kitchen notify failed: {e}")
 
 
-def notify_client_safe(order: dict, text: str, photo_file_id: str | None = None):
+def notify_client_safe(
+    order: dict,
+    text: str,
+    photo_file_id: str | None = None,
+):
+    """
+    Fail-safe уведомление клиента.
+    Web API не знает, доставлено сообщение или нет.
+    """
     try:
-        # STUB: реальный бот курьерки будет тут
-        msg = f"[notify_client] tg={order.get('client_tg_id')} | {text}"
+        client_tg_id = order.get("client_tg_id")
+        if not client_tg_id:
+            return
+
+        # STUB: позже здесь будет вызов бота курьерки
+        msg = f"[notify_client] tg={client_tg_id} | {text}"
+
         if photo_file_id:
-            msg += f" | photo={photo_file_id}"
+            msg += f" | photo_file_id={photo_file_id}"
+
         print(msg)
+
     except Exception as e:
+        # ничего не ломаем
         order["last_client_notify_error"] = str(e)
         log.warning(f"client notify failed: {e}")
