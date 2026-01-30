@@ -48,9 +48,10 @@ def get_kitchen_spreadsheet_id(kitchen_id: int) -> str:
 
 KITCHENS_REGISTRY = {
     1: {
-        "spreadsheet_id": "1dQFxRHsS2yFSV5rzB_q4q5WLv2GPaB2Gyawm2ZudPx4",
+        "spreadsheet_id": "...",
         "city": "dunpo",
         "active": True,
+        "tg_chat_id": 2115245228,  # или обычный user_id
     }
 }
 
@@ -141,9 +142,12 @@ class OrderCreateResponse(BaseModel):
 
 
 #Статус от курьерки#
-
+from typing import Optional, Dict, Any
 class OrderStatusUpdate(BaseModel):
     status: str
+    eta_minutes: Optional[int] = None
+    proof_image_file_id: Optional[str] = None
+    proof_image_message_id: Optional[int] = None
 
 
 class PickupETARequest(BaseModel):
@@ -249,17 +253,11 @@ async def create_order(payload: OrderCreateRequest):
     if courier_requested:
         courier_payload = {
             "order_id": payload.order_id,
-            "source": payload.source,
             "client_tg_id": payload.client_tg_id,
-            "client_name": payload.client_name,
-            "client_phone": payload.client_phone,
             "pickup_address": payload.pickup_address,
             "delivery_address": payload.delivery_address,
-            "pickup_eta_at": payload.pickup_eta_at.isoformat(),
-            "city": payload.city,
-            "comment": payload.comment,
         }
-
+        log.error("[DEBUG COURIER PAYLOAD] %s", courier_payload)
         try:
             delivery_order_id = await create_courier_order(courier_payload)
             delivery_provider = "courier"
@@ -314,7 +312,7 @@ async def create_order(payload: OrderCreateRequest):
 
         # 🆕 для диагностики и будущих ретраев
         "courier_last_error": None if delivery_order_id else "courier_create_failed",
-
+        "kitchen_tg_chat_id": KITCHENS_REGISTRY.get(payload.kitchen_id, {}).get("tg_chat_id", 0),
         "created_at": datetime.utcnow().isoformat(),
     }
 
@@ -368,18 +366,12 @@ async def set_pickup_eta(order_id: str, payload: PickupETARequest):
 
     # формируем payload для курьерки
     courier_payload = {
-        "order_id": order["order_id"],
-        "source": order["source"],
-        "client_tg_id": order["client_tg_id"],
-        "client_name": order["client_name"],
-        "client_phone": order["client_phone"],
-        "pickup_address": order["pickup_address"],
-        "delivery_address": order["delivery_address"],
-        "pickup_eta_at": order["pickup_eta_at"],
-        "city": order["city"],
-        "comment": order.get("comment"),
+        "order_id": payload.order_id,
+        "client_tg_id": payload.client_tg_id,
+        "pickup_address": payload.pickup_address,
+        "delivery_address": payload.delivery_address,
     }
-
+    log.error("[DEBUG COURIER PAYLOAD] %s", courier_payload)
     try:
         print(">>> USING create_courier_order FROM", create_courier_order.__module__)
         delivery_order_id = await create_courier_order(courier_payload)
@@ -456,6 +448,9 @@ def update_order_status(order_id: str, payload: OrderStatusUpdate):
 
     # 1️⃣ сначала получаем заказ
     order = ORDERS.get(order_id)
+    
+    if payload.eta_minutes is not None:
+        order["eta_minutes"] = payload.eta_minutes
 
     # 1.1) fallback: ищем по external delivery_order_id
     if not order:
@@ -541,6 +536,12 @@ def update_order_status(order_id: str, payload: OrderStatusUpdate):
     )
 
     courier_status = payload.status
+    # optional proof from courier
+    if payload.proof_image_file_id:
+        order["proof_image_file_id"] = payload.proof_image_file_id
+    if payload.proof_image_message_id:
+        order["proof_image_message_id"] = payload.proof_image_message_id
+
     raw_current_status = order.get("status")
     current_status = raw_current_status
 
@@ -619,7 +620,12 @@ def update_order_status(order_id: str, payload: OrderStatusUpdate):
 
     # 5) применяем новый статус
     order["status"] = mapped_status
-    order["updated_at"] = datetime.utcnow().isoformat()
+
+    if payload.proof_image_file_id:
+        order["proof_image_file_id"] = payload.proof_image_file_id
+
+    if payload.proof_image_message_id:
+        order["proof_image_message_id"] = payload.proof_image_message_id
 
     try:
         fanout_delivery_status(
