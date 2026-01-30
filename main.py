@@ -1,4 +1,4 @@
-#main.py - WEBAPI BETWEEN COURIER SERVICE AND KITCHEN
+# main.py - WEBAPI BETWEEN COURIER SERVICE AND KITCHEN
 
 from fastapi import FastAPI, Header, HTTPException, Depends
 from datetime import datetime
@@ -6,7 +6,7 @@ from typing import Optional, Dict
 import uuid
 import json
 import os
-
+import logging
 from pydantic import BaseModel
 
 from delivery_fanout import fanout_delivery_status
@@ -16,9 +16,11 @@ from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 from courier_adapter import create_courier_order
 
+log = logging.getLogger("webapi")
 SERVICE_ACCOUNT_FILE = os.getenv("GOOGLE_SERVICE_ACCOUNT_FILE", "service_account.json")
 
 _sheets_service = None
+
 
 def get_sheets_service_safe():
     global _sheets_service
@@ -36,11 +38,13 @@ def get_sheets_service_safe():
 
     return _sheets_service
 
+
 def get_kitchen_spreadsheet_id(kitchen_id: int) -> str:
     kitchen = KITCHENS_REGISTRY.get(kitchen_id)
     if not kitchen:
         raise RuntimeError(f"kitchen {kitchen_id} not found")
     return kitchen["spreadsheet_id"]
+
 
 KITCHENS_REGISTRY = {
     1: {
@@ -65,15 +69,18 @@ app = FastAPI(
 
 API_KEY = "DEV_KEY"
 
+
 def require_api_key(x_api_key: str = Header(...)):
     if x_api_key != API_KEY:
         raise HTTPException(status_code=401, detail="Invalid API key")
+
 
 def require_role(required: str):
     def _check(x_role: str = Header(...)):
         if x_role != required:
             raise HTTPException(status_code=403, detail="Forbidden")
     return _check
+
 
 #3. In-memory storage (потом заменим)#
 
@@ -96,9 +103,11 @@ class CourierStatusWebhook(BaseModel):
     status: str
     meta: Optional[dict] = None
 
+
 class AddressVerifyRequest(BaseModel):
     tg_id: int
     address: str
+
 
 class AddressVerifyResponse(BaseModel):
     status: str
@@ -108,19 +117,6 @@ class AddressVerifyResponse(BaseModel):
     outside_zone: bool
     message: str
 
-# ===== Events (fan-out base) =====
-
-def emit_event(event_type: str, order_id: str, payload: dict | None = None):
-    try:
-        event = {
-            "ts": datetime.utcnow().isoformat(),
-            "event": event_type,
-            "order_id": str(order_id),
-            "payload": payload or {},
-        }
-        print("[EVENT]", event)
-    except Exception:
-        pass
 
 #Заказ#
 
@@ -137,24 +133,29 @@ class OrderCreateRequest(BaseModel):
     city: str
     comment: Optional[str] = None
 
+
 class OrderCreateResponse(BaseModel):
     status: str
     external_delivery_ref: Optional[str] = None
     already_exists: bool = False
+
 
 #Статус от курьерки#
 
 class OrderStatusUpdate(BaseModel):
     status: str
 
+
 class PickupETARequest(BaseModel):
     pickup_eta_at: datetime
     source: str = "preset"
+
 
 #5. Геокодинг и зоны (STUB)#
 def geocode_address(address: str):
     # stub
     return 37.0, 127.0
+
 
 def check_zone(lat: float, lng: float):
     # stub
@@ -163,11 +164,14 @@ def check_zone(lat: float, lng: float):
         "distance_km": 3.2,
         "outside_zone": False,
     }
+
+
 #6. Address check (STUB) #
 
 class AddressCheckRequest(BaseModel):
     city: str
     address: str
+
 
 class AddressCheckResponse(BaseModel):
     ok: bool
@@ -198,6 +202,7 @@ def check_address(payload: AddressCheckRequest):
         message="Адрес принят (stub)",
     )
 
+
 #7. Создание заказа (idempotent)#
 
 @app.post(
@@ -209,11 +214,21 @@ def check_address(payload: AddressCheckRequest):
     ],
 )
 async def create_order(payload: OrderCreateRequest):
+
+    log.info(
+        "[CREATE_ORDER] order_id=%s source=%s kitchen_id=%s courier_requested=%s",
+        payload.order_id,
+        payload.source,
+        payload.kitchen_id,
+        payload.pickup_eta_at is not None,
+    )
+
     print(">>> USING create_courier_order FROM", create_courier_order.__module__)
+
     # STUB: default kitchen_id
     if payload.kitchen_id is None:
         payload.kitchen_id = 1
-    
+
     # 1. idempotency
     if payload.order_id in ORDERS:
         return OrderCreateResponse(
@@ -227,8 +242,10 @@ async def create_order(payload: OrderCreateRequest):
 
     delivery_order_id = None
     delivery_provider = None
-    log.info(f"[DEBUG] COURIER_API_URL = {COURIER_API_URL}")
-    # 3. если курьер нужен — дергаем курьерку
+
+    log.info("[DEBUG] calling courier_adapter.create_courier_order")
+
+    # 3. если курьер нужен - дергаем курьерку
     if courier_requested:
         courier_payload = {
             "order_id": payload.order_id,
@@ -244,25 +261,34 @@ async def create_order(payload: OrderCreateRequest):
         }
 
         try:
-            print(">>> USING create_courier_order FROM", create_courier_order.__module__)
             delivery_order_id = await create_courier_order(courier_payload)
             delivery_provider = "courier"
-        except Exception:
-            raise HTTPException(
-                status_code=503,
-                detail="Courier service unavailable",
-            )
+        except Exception as e:
+            log.error("[COURIER_CREATE_FAILED] %s", e)
+
+            # ⬇️ ВАЖНО: заказ ВСЕ РАВНО создается
+            delivery_order_id = None
+            delivery_provider = None
+
+            # фиксируем проблему в заказе
+            courier_failed = True
+        else:
+            courier_failed = False
 
     # 4. сохраняем заказ в Web API
+    # Важно: стартовый delivery-статус для FSM должен быть delivery_new, если курьер реально запрошен.
     ORDERS[payload.order_id] = {
         **payload.dict(),
 
+        # решение кухни зафиксировано ВСЕГДА
         "courier_decision": (
             "requested" if courier_requested else "not_requested"
         ),
 
+        # стартовый FSM-статус
+        # ❗ даже если курьерка упала, FSM должен стартовать
         "status": (
-            "courier_requested"
+            "delivery_new"
             if courier_requested
             else "courier_not_requested"
         ),
@@ -271,18 +297,43 @@ async def create_order(payload: OrderCreateRequest):
         "delivery_price_krw": MIN_DELIVERY_PRICE_KRW,
         "delivery_price_source": DELIVERY_PRICE_SOURCE,
 
-        "delivery_provider": delivery_provider,
+        # курьерка может быть временно недоступна
+        # ❗ ВАЖНО: provider = courier, если доставка ЗАПРОШЕНА
+        # иначе update_order_status и fanout будут игнорить
+        "delivery_provider": (
+            "courier" if courier_requested else None
+        ),
+
+        # внешний id может отсутствовать — это допустимо
         "delivery_order_id": delivery_order_id,
+
+        # 🆕 фиксируем сбой курьерки, НЕ ломая заказ
+        "courier_failed": (
+            courier_requested and delivery_order_id is None
+        ),
+
+        # 🆕 для диагностики и будущих ретраев
+        "courier_last_error": None if delivery_order_id else "courier_create_failed",
 
         "created_at": datetime.utcnow().isoformat(),
     }
-    
+
+    emit_event(
+        "order_created",
+        payload.order_id,
+        {
+            "courier_requested": courier_requested,
+            "courier_failed": ORDERS[payload.order_id]["courier_failed"],
+        },
+    )
+
     # 5. ответ
     return OrderCreateResponse(
         status="ok",
         external_delivery_ref=delivery_order_id,
         already_exists=False,
     )
+
 
 @app.post(
     "/api/v1/orders/{order_id}/pickup_eta",
@@ -293,8 +344,14 @@ async def create_order(payload: OrderCreateRequest):
 )
 async def set_pickup_eta(order_id: str, payload: PickupETARequest):
     print(">>> USING create_courier_order FROM", create_courier_order.__module__)
+
     order = ORDERS.get(order_id)
     if not order:
+        log.warning(
+            "[STATUS_404] order_id=%s not found in ORDERS. Known=%s",
+            order_id,
+            list(ORDERS.keys()),
+        )
         raise HTTPException(status_code=404, detail="Order not found")
 
     # защита от повторов
@@ -307,7 +364,7 @@ async def set_pickup_eta(order_id: str, payload: PickupETARequest):
 
     # решение кухни
     order["courier_decision"] = "requested"
-    order["status"] = "courier_requested"
+    order["status"] = "delivery_new"
 
     # формируем payload для курьерки
     courier_payload = {
@@ -352,13 +409,41 @@ async def set_pickup_eta(order_id: str, payload: PickupETARequest):
 )
 def get_order(order_id: str):
     order = ORDERS.get(order_id)
+
+    if not order:
+        order = next(
+            (
+                o for o in ORDERS.values()
+                if o.get("delivery_order_id") == order_id
+            ),
+            None,
+        )
+
+    if not order:
+        try:
+            restored = load_order_from_sheets(order_id)
+            if restored:
+                ORDERS[restored["order_id"]] = restored
+                order = restored
+                log.warning(
+                    "[ORDER_RESTORED_FROM_SHEETS] order_id=%s",
+                    restored["order_id"],
+                )
+        except Exception as e:
+            log.error(
+                "[ORDER_RESTORE_FAILED] order_id=%s err=%s",
+                order_id,
+                e,
+            )
+
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
+
     return order
+   
 
 
 #9. Обновление статуса (курьерка)#
-
 
 @app.post(
     "/api/v1/orders/{order_id}/status",
@@ -371,8 +456,51 @@ def update_order_status(order_id: str, payload: OrderStatusUpdate):
 
     # 1️⃣ сначала получаем заказ
     order = ORDERS.get(order_id)
+
+    # 1.1) fallback: ищем по external delivery_order_id
     if not order:
+        order = next(
+            (
+                o for o in ORDERS.values()
+                if o.get("delivery_order_id") == order_id
+            ),
+            None,
+        )
+    log.info(
+        "[COURIER_STATUS] incoming order_id=%s status=%s",
+        order_id,
+        payload.status,
+    )
+    # 1.2) EXCLUSIVE: восстановление из Sheets
+    if not order:
+        try:
+            restored = load_order_from_sheets(order_id)
+            if restored:
+                canonical_id = restored.get("order_id")
+                ORDERS[canonical_id] = restored
+                order = restored
+                log.warning(
+                    "[ORDER_RESTORED_FROM_SHEETS] external_id=%s canonical_id=%s",
+                    order_id,
+                    canonical_id,
+                )
+        except Exception as e:
+            log.error(
+                "[ORDER_RESTORE_FAILED] order_id=%s err=%s",
+                order_id,
+                e,
+            )
+
+    if not order:
+        log.error(
+            "[STATUS_404] order_id=%s not found in ORDERS. Known=%s",
+            order_id,
+            list(ORDERS.keys()),
+        )
         raise HTTPException(status_code=404, detail="Order not found")
+
+    # canonical id, если запрос пришел по external delivery id
+    canonical_id = order.get("order_id") or order_id
 
     # 2️⃣ защита: курьер не вызывался
     if order.get("courier_decision") == "not_requested":
@@ -381,12 +509,29 @@ def update_order_status(order_id: str, payload: OrderStatusUpdate):
             "reason": "courier_not_requested",
         }
 
-    # защита от апдейтов не от курьерки
-    if order.get("delivery_provider") != "courier":
+    # ❗ только kitchen-orders участвуют в fan-out и уведомлениях
+    if order.get("source") != "kitchen":
+        log.info(
+            "Ignore courier status update: not a kitchen order | order_id=%s",
+            order_id,
+        )
         return {
             "status": "ignored",
-            "reason": "not_managed_by_courier",
+            "reason": "not_kitchen_order",
         }
+
+    # защита от апдейтов не от курьерки
+    # ⬇️ НО: разрешаем fan-out если курьер упал при создании (DEV / STUB)
+    if order.get("delivery_provider") != "courier":
+        if not order.get("courier_failed"):
+            return {
+                "status": "ignored",
+                "reason": "not_managed_by_courier",
+            }
+        log.warning(
+            "[DEV_STUB] delivery_provider missing but courier_failed=True | order_id=%s",
+            order_id,
+        )
 
     print(
         "[DEBUG] updating order",
@@ -402,7 +547,7 @@ def update_order_status(order_id: str, payload: OrderStatusUpdate):
     # === важно: фиксируем первый courier-апдейт ===
     first_courier_update = "courier_updated_at" not in order
 
-    # pending — технический статус Web API, FSM его не видит
+    # pending - технический статус Web API, FSM его не видит
     if current_status == "pending":
         current_status = None
 
@@ -419,7 +564,7 @@ def update_order_status(order_id: str, payload: OrderStatusUpdate):
         order["courier_last_error"] = f"Unknown courier status: {courier_status}"
         emit_event(
             "delivery_status_unknown",
-            order_id,
+            canonical_id,
             {"courier_status": courier_status},
         )
         return {"status": "ok"}
@@ -432,7 +577,7 @@ def update_order_status(order_id: str, payload: OrderStatusUpdate):
     if is_final(current_status):
         emit_event(
             "delivery_status_ignored_final",
-            order_id,
+            canonical_id,
             {
                 "current": current_status,
                 "incoming": mapped_status,
@@ -449,7 +594,7 @@ def update_order_status(order_id: str, payload: OrderStatusUpdate):
 
         emit_event(
             "delivery_status_rejected",
-            order_id,
+            canonical_id,
             {
                 "current": current_status,
                 "incoming": mapped_status,
@@ -461,7 +606,7 @@ def update_order_status(order_id: str, payload: OrderStatusUpdate):
         sync_delivery_status_to_kitchen(
             sheets=get_sheets_service_safe(),
             spreadsheet_id=get_kitchen_spreadsheet_id(order["kitchen_id"]),
-            order_id=order_id,
+            canonical_id=canonical_id,
             delivery_state=mapped_status,
             courier_status_raw=courier_status,
             courier_external_id=order.get("delivery_order_id"),
@@ -469,33 +614,13 @@ def update_order_status(order_id: str, payload: OrderStatusUpdate):
             courier_last_error=order.get("courier_last_error"),
         )
         return {"status": "ok", "rejected": True}
+    
     # ===== HAPPY PATH =====
 
     # 5) применяем новый статус
     order["status"] = mapped_status
     order["updated_at"] = datetime.utcnow().isoformat()
 
-    delivery_external_id = order.get("delivery_order_id")
-
-    # первый courier-апдейт ВСЕГДА синкаем
-    if current_status is None or delivery_external_id:
-        sync_delivery_status_to_kitchen(
-            sheets=get_sheets_service_safe(),
-            spreadsheet_id=get_kitchen_spreadsheet_id(order["kitchen_id"]),
-            order_id=order_id,
-            delivery_state=mapped_status,
-            courier_status_raw=courier_status,
-            courier_external_id=delivery_external_id,  # может быть None — это ОК
-            courier_status_detail=order.get("courier_status_detail"),
-            courier_last_error=order.get("courier_last_error"),
-            delivery_confirmed_at=(
-                datetime.utcnow().isoformat()
-                if mapped_status == "delivered"
-                else None
-            ),
-        )
-
-    # 6. fan-out уведомлений
     try:
         fanout_delivery_status(
             order=order,
@@ -505,9 +630,29 @@ def update_order_status(order_id: str, payload: OrderStatusUpdate):
     except Exception as e:
         order["fanout_last_error"] = str(e)
 
+    delivery_external_id = order.get("delivery_order_id")
+
+    # первый courier-апдейт ВСЕГДА синкаем
+    if current_status is None or delivery_external_id:
+        sync_delivery_status_to_kitchen(
+            sheets=get_sheets_service_safe(),
+            spreadsheet_id=get_kitchen_spreadsheet_id(order["kitchen_id"]),
+            canonical_id=canonical_id,
+            delivery_state=mapped_status,
+            courier_status_raw=courier_status,
+            courier_external_id=delivery_external_id,  # может быть None - это ОК
+            courier_status_detail=order.get("courier_status_detail"),
+            courier_last_error=order.get("courier_last_error"),
+            delivery_confirmed_at=(
+                datetime.utcnow().isoformat()
+                if mapped_status == "delivered"
+                else None
+            ),
+        )
+
     emit_event(
         "delivery_status_changed",
-        order_id,
+        canonical_id,
         {
             "from": raw_current_status,
             "to": mapped_status,
@@ -515,13 +660,13 @@ def update_order_status(order_id: str, payload: OrderStatusUpdate):
         },
     )
 
-    # 7. delivered — финал (один раз)
+    # 7. delivered - финал (один раз)
     if mapped_status == "delivered" and not order.get("delivery_confirmed_at"):
         order["delivery_confirmed_at"] = datetime.utcnow().isoformat()
 
         emit_event(
             "delivery_completed",
-            order_id,
+            canonical_id,
             {
                 "proof_image_file_id": order.get("proof_image_file_id"),
                 "proof_image_message_id": order.get("proof_image_message_id"),
@@ -530,7 +675,60 @@ def update_order_status(order_id: str, payload: OrderStatusUpdate):
 
     return {"status": "ok"}
 
-# ===== Endpoint приема статуса ===== 
+# ===== Utilities =====
+
+def load_order_from_sheets(order_id: str) -> dict | None:
+    """
+    Восстановление заказа из Google Sheets.
+    Используется ТОЛЬКО если заказа нет в памяти.
+
+    EXCLUSIVE:
+    - поддерживает поиск как по canonical order_id (колонка C),
+      так и по external delivery_order_id (колонка W по твоему листу, но проверим индексы ниже).
+    """
+    try:
+        sheets = get_sheets_service_safe()
+
+        result = sheets.values().get(
+            spreadsheetId=get_kitchen_spreadsheet_id(1),
+            range="orders!A2:Z",
+        ).execute()
+
+        rows = result.get("values", [])
+
+        # индексы (0-based) внутри A..Z
+        IDX_ORDER_ID = 2        # C
+        IDX_STATUS = 19         # T? ты используешь 19 выше, оставляем
+        IDX_DELIVERY_ORDER_ID = 22  # W? у тебя было 22, оставляем как было
+
+        for row in rows:
+            # safe getters
+            canon = row[IDX_ORDER_ID] if len(row) > IDX_ORDER_ID else ""
+            ext = row[IDX_DELIVERY_ORDER_ID] if len(row) > IDX_DELIVERY_ORDER_ID else ""
+
+            # совпадение по canonical или по external
+            if canon == order_id or (ext and ext == order_id):
+                return {
+                    "order_id": canon or order_id,
+                    "kitchen_id": 1,
+                    "client_tg_id": int(row[1]) if len(row) > 1 and str(row[1]).isdigit() else None,
+                    "status": row[IDX_STATUS] if len(row) > IDX_STATUS else None,
+                    "delivery_order_id": ext or None,
+                    "courier_decision": "requested",
+                    "delivery_provider": "courier",
+                    "source": "kitchen",
+                    "city": None,
+                    "pickup_address": None,
+                    "delivery_address": None,
+                    # важно: чтобы update_order_status не игнорировал
+                }
+
+    except Exception as e:
+        log.error(f"[SHEETS_RESTORE_FAILED] {order_id} {e}")
+
+    return None
+
+# ===== Endpoint приема статуса =====
 
 @app.post(
     "/api/v1/courier/status",
@@ -539,86 +737,70 @@ def update_order_status(order_id: str, payload: OrderStatusUpdate):
         Depends(require_role("courier")),
     ],
 )
-
 def courier_status_webhook(payload: CourierStatusWebhook):
+    """
+    Единая точка приема статусов от курьерки.
+    Не содержит UI-логики.
+    Не отправляет Telegram напрямую.
+
+    Делегирует всю бизнес-логику в /api/v1/orders/{order_id}/status,
+    чтобы не было расхождения между двумя обработчиками.
+    """
+
+    # 1) пытаемся найти заказ по внутреннему order_id
     order = ORDERS.get(payload.order_id)
+
+    # 2) fallback: ищем по external delivery_order_id
     if not order:
-        raise HTTPException(status_code=404, detail="Order not found")
-
-    if order.get("courier_decision") == "not_requested":
-        return {"status": "ignored", "reason": "courier_not_requested"}
-
-    courier_status = payload.status
-
-    # всегда сохраняем raw статус
-    order["courier_status_detail"] = courier_status
-    order["courier_updated_at"] = datetime.utcnow().isoformat()
-
-    mapped_status = map_courier_status_to_kitchen(courier_status)
-
-    if not mapped_status:
-        order["courier_last_error"] = f"Unknown courier status: {courier_status}"
-        return {"status": "ignored"}
-
-    # защита от повторов
-    if order.get("status") == mapped_status:
-        return {"status": "ok", "idempotent": True}
-
-    # уведомления клиенту (fail-safe)
-    if mapped_status == "delivery_in_progress":
-        notify_client_safe(order, "🚚 Курьер выехал")
-
-    if courier_status == "order_on_hands":
-        notify_client_safe(order, "📦 Заказ у курьера")
-
-    if mapped_status == "delivered":
-        notify_client_safe(order, "✅ Заказ доставлен")
-
-    # применяем статус в памяти
-    order["status"] = mapped_status
-
-    # sync в Sheets ТОЛЬКО если доставка реально существует
-    if order.get("delivery_order_id"):
-        sync_delivery_status_to_kitchen(
-            sheets=get_sheets_service_safe(),
-            spreadsheet_id=get_kitchen_spreadsheet_id(order["kitchen_id"]),
-            order_id=order["order_id"],
-            courier_status_raw=courier_status,
-            courier_external_id=order.get("delivery_order_id"),
-            courier_status_detail=order.get("courier_status_detail"),
-            is_delivered=(mapped_status == "delivered"),
+        order = next(
+            (
+                o for o in ORDERS.values()
+                if o.get("delivery_order_id") == payload.order_id
+            ),
+            None,
         )
 
-    # fan-out (не ломает поток)
-    fanout_delivery_status(
-        order=order,
-        courier_status=courier_status,
-        kitchen_status=mapped_status,
-    )
+    # 3) 🆕 ленивое восстановление из Sheets (эксклюзивное исключение)
+    if not order:
+        try:
+            restored = load_order_from_sheets(payload.order_id)
+            if restored:
+                ORDERS[restored["order_id"]] = restored
+                order = restored
+                log.warning(
+                    "[ORDER_RESTORED_FROM_SHEETS] order_id=%s",
+                    restored["order_id"],
+                )
+        except Exception as e:
+            log.error(
+                "[ORDER_RESTORE_FAILED] order_id=%s err=%s",
+                payload.order_id,
+                e,
+            )
 
-    # delivered — финал (один раз)
-    if mapped_status == "delivered" and not order.get("delivery_confirmed_at"):
-        order["delivery_confirmed_at"] = datetime.utcnow().isoformat()
+    if not order:
+        log.error(
+            "[STATUS_404] order_id=%s not found in ORDERS. Known=%s",
+            payload.order_id,
+            list(ORDERS.keys()),
+        )
+        raise HTTPException(status_code=404, detail="Order not found")
 
-        if payload.meta:
-            if "proof_image_file_id" in payload.meta:
-                order["proof_image_file_id"] = payload.meta["proof_image_file_id"]
-            if "proof_image_message_id" in payload.meta:
-                order["proof_image_message_id"] = payload.meta["proof_image_message_id"]
+# ===== Events (fan-out base) =====
 
-    return {"status": "ok"}
-
-def notify_client_safe(order: dict, text: str):
-    """
-    Fail-safe уведомление клиента.
-    Ошибки не пробрасываются и не ломают основной флоу.
-    """
+def emit_event(event_type: str, order_id: str, payload: dict | None = None):
     try:
-        # STUB: здесь позже будет реальный вызов бота курьерки
-        print(f"[notify_client] tg={order['client_tg_id']} | {text}")
+        event = {
+            "ts": datetime.utcnow().isoformat(),
+            "event": event_type,
+            "order_id": str(order_id),
+            "payload": payload or {},
+        }
+        print("[EVENT]", event)
     except Exception as e:
-        # ничего не ломаем, максимум фиксируем
-        order["last_client_notify_error"] = str(e)
+        log.error("[EMIT_EVENT_FAILED] %s", e)
+
+
 
 # ===== Courier -> Kitchen status mapping =====
 
@@ -631,8 +813,10 @@ COURIER_TO_KITCHEN_STATUS = {
     "cancelled": "cancelled",
 }
 
+
 def map_courier_status_to_kitchen(courier_status: str) -> str | None:
     return COURIER_TO_KITCHEN_STATUS.get(courier_status)
+
 
 #10. Заказы клиента (WebApp / курьерка)#
 
@@ -645,5 +829,6 @@ def get_client_orders(client_tg_id: int):
         o for o in ORDERS.values()
         if o["client_tg_id"] == client_tg_id
     ]
+
 
 print("### WEB API MAIN LOADED ###")

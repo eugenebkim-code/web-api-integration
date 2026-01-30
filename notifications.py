@@ -3,7 +3,7 @@
 import logging
 import requests
 import os
-
+from datetime import datetime
 log = logging.getLogger("notifications")
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -61,15 +61,22 @@ def notify_client_safe(
     try:
         client_tg_id = order.get("client_tg_id")
         if not client_tg_id:
+            order["last_client_notify_skipped"] = "no_client_tg_id"
             return
 
-        # STUB: позже здесь будет вызов бота курьерки
-        msg = f"[notify_client] tg={client_tg_id} | {text}"
+        payload = {
+            "client_tg_id": client_tg_id,
+            "text": text,
+            "photo_file_id": photo_file_id,
+            "ts": datetime.utcnow().isoformat(),
+        }
 
-        if photo_file_id:
-            msg += f" | photo_file_id={photo_file_id}"
+        # STUB: имитация отправки
+        print("[NOTIFY_CLIENT_STUB]", payload)
 
-        print(msg)
+        # 🆕 ЯВНО фиксируем факт попытки уведомления
+        order["last_client_notify_at"] = payload["ts"]
+        order["last_client_notify_payload"] = payload
 
     except Exception as e:
         # ничего не ломаем
