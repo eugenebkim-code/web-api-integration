@@ -225,7 +225,7 @@ async def create_order(payload: OrderCreateRequest):
 
     delivery_order_id = None
     delivery_provider = None
-
+    log.info(f"[DEBUG] COURIER_API_URL = {COURIER_API_URL}")
     # 3. если курьер нужен — дергаем курьерку
     if courier_requested:
         courier_payload = {
