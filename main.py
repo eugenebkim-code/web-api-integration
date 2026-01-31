@@ -286,6 +286,8 @@ class AddressCheckResponse(BaseModel):
     normalized_address: str
     zone: Optional[str] = None
     message: Optional[str] = None
+    price_krw: Optional[int] = None
+    distance_km: Optional[float] = None
 
 @app.post(
     "/api/v1/address/check",
@@ -337,6 +339,8 @@ async def check_address(payload: AddressCheckRequest):
         ok=True,
         normalized_address=payload.address,
         zone=payload.city,
+        price_krw=price,
+        distance_km=round(distance_km, 2),
         message=(
             f"Адрес вне стандартной зоны ({round(distance_km,1)} км). "
             f"Стоимость доставки {price} ₩"
@@ -406,9 +410,17 @@ async def create_order(payload: OrderCreateRequest):
     if courier_requested:
         courier_payload = {
             "order_id": payload.order_id,
+            "source": payload.source,
+            "kitchen_id": payload.kitchen_id or 1,
             "client_tg_id": payload.client_tg_id,
+            "client_name": payload.client_name,
+            "client_phone": payload.client_phone,
             "pickup_address": payload.pickup_address,
             "delivery_address": payload.delivery_address,
+            "pickup_eta_at": payload.pickup_eta_at.isoformat() if payload.pickup_eta_at else None,
+            "city": payload.city,
+            "comment": payload.comment,
+            "price_krw": delivery_price,
         }
         log.error("[DEBUG COURIER PAYLOAD] %s", courier_payload)
         try:
@@ -519,11 +531,19 @@ async def set_pickup_eta(order_id: str, payload: PickupETARequest):
 
     # формируем payload для курьерки
     courier_payload = {
-        "order_id": payload.order_id,
-        "client_tg_id": payload.client_tg_id,
-        "pickup_address": payload.pickup_address,
-        "delivery_address": payload.delivery_address,
-    }
+            "order_id": payload.order_id,
+            "source": payload.source,
+            "kitchen_id": payload.kitchen_id or 1,
+            "client_tg_id": payload.client_tg_id,
+            "client_name": payload.client_name,
+            "client_phone": payload.client_phone,
+            "pickup_address": payload.pickup_address,
+            "delivery_address": payload.delivery_address,
+            "pickup_eta_at": payload.pickup_eta_at.isoformat() if payload.pickup_eta_at else None,
+            "city": payload.city,
+            "comment": payload.comment,
+            "price_krw": delivery_price,
+        }
     log.error("[DEBUG COURIER PAYLOAD] %s", courier_payload)
     try:
         print(">>> USING create_courier_order FROM", create_courier_order.__module__)
