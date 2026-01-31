@@ -64,11 +64,21 @@ def notify_kitchen_safe(
             text += f"\n⏱ Готовность через {order['eta_minutes']} мин"
 
         if photo_file_id:
-            tg_send_photo(
+            sent = tg_send_photo(
                 chat_id=kitchen_chat_id,
                 photo_file_id=photo_file_id,
                 caption=text,
             )
+
+            if not sent:
+                log.warning(
+                    "[notify_kitchen] failed to send photo, fallback to text | order_id=%s",
+                    order.get("order_id"),
+                )
+                tg_send_message(
+                    chat_id=kitchen_chat_id,
+                    text=text,
+                )
         else:
             tg_send_message(
                 chat_id=kitchen_chat_id,
@@ -103,19 +113,83 @@ def tg_send_message(chat_id: int, text: str):
         r.raise_for_status()
 
 
-def tg_send_photo(chat_id: int, photo_file_id: str, caption: str):
+def tg_send_photo(
+    chat_id: int,
+    photo_file_id: str | None,
+    caption: str | None = None,
+) -> bool:
     if not TG_BOT_TOKEN:
         log.error("KITCHEN_BOT_TOKEN is not set")
-        return
+        return False
+
+    if not photo_file_id:
+        log.warning(
+            "[tg_send_photo] skip send: empty photo_file_id chat=%s",
+            chat_id,
+        )
+        return False
 
     url = f"{TG_API_BASE}{TG_BOT_TOKEN}/sendPhoto"
-    with httpx.Client(timeout=10) as client:
-        r = client.post(
-            url,
-            json={
-                "chat_id": chat_id,
-                "photo": photo_file_id,
-                "caption": caption,
-            },
+
+    payload = {
+        "chat_id": chat_id,
+        "photo": photo_file_id,
+    }
+
+    # caption добавляем ТОЛЬКО если он реально есть
+    if caption:
+        payload["caption"] = caption
+
+    try:
+        with httpx.Client(timeout=10) as client:
+            r = client.post(url, json=payload)
+
+        if r.status_code != 200:
+            log.error(
+                "[tg_send_photo] telegram error chat=%s status=%s response=%s payload=%s",
+                chat_id,
+                r.status_code,
+                r.text,
+                payload,
+            )
+            return False
+
+        log.info(
+            "[tg_send_photo] sent photo chat=%s file_id=%s",
+            chat_id,
+            photo_file_id,
         )
-        r.raise_for_status()
+        return True
+
+    except Exception:
+        log.exception(
+            "[tg_send_photo] exception while sending photo chat=%s file_id=%s",
+            chat_id,
+            photo_file_id,
+        )
+        return False
+
+
+    except httpx.HTTPStatusError as e:
+        # 🔥 ПАТЧ 2.1: не роняем уведомления кухни
+        log.exception(
+            "[tg_send_photo] sendPhoto failed, fallback to text | chat=%s file_id=%s",
+            chat_id,
+            photo_file_id,
+        )
+
+        # fallback: обычное сообщение
+        fallback_url = f"{TG_API_BASE}{TG_BOT_TOKEN}/sendMessage"
+        fallback_text = caption or "📦 Фото доставки"
+
+        try:
+            with httpx.Client(timeout=10) as client:
+                client.post(
+                    fallback_url,
+                    json={
+                        "chat_id": chat_id,
+                        "text": fallback_text,
+                    },
+                )
+        except Exception:
+            log.exception("[tg_send_photo] fallback sendMessage also failed")

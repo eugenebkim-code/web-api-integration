@@ -878,7 +878,7 @@ def load_order_from_sheets(order_id: str) -> dict | None:
 
         result = sheets.values().get(
             spreadsheetId=get_kitchen_spreadsheet_id(1),
-            range="orders!A2:Z",
+            range="orders!A:AD",
         ).execute()
 
         rows = result.get("values", [])
