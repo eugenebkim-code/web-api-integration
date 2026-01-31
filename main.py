@@ -99,6 +99,11 @@ EVENTS_HEADERS = [
 
 #4. Models#
 
+class CourierStatusUpdate(BaseModel):
+    status: str
+    proof_image_file_id: Optional[str] = None
+    proof_image_message_id: Optional[str] = None
+
 class CourierStatusWebhook(BaseModel):
     order_id: str
     status: str
@@ -448,9 +453,6 @@ def update_order_status(order_id: str, payload: OrderStatusUpdate):
 
     # 1️⃣ сначала получаем заказ
     order = ORDERS.get(order_id)
-    
-    if payload.eta_minutes is not None:
-        order["eta_minutes"] = payload.eta_minutes
 
     # 1.1) fallback: ищем по external delivery_order_id
     if not order:
@@ -461,6 +463,13 @@ def update_order_status(order_id: str, payload: OrderStatusUpdate):
             ),
             None,
         )
+
+    # 1.2) EXCLUSIVE: восстановление из Sheets
+    # (оставляем как есть ниже)
+
+    # ✅ eta можно писать только когда order уже найден
+    if order and payload.eta_minutes is not None:
+        order["eta_minutes"] = payload.eta_minutes
     log.info(
         "[COURIER_STATUS] incoming order_id=%s status=%s",
         order_id,
@@ -536,6 +545,10 @@ def update_order_status(order_id: str, payload: OrderStatusUpdate):
     )
 
     courier_status = payload.status
+
+    # гарантируем инициализацию
+    mapped_status = None
+
     # optional proof from courier
     if payload.proof_image_file_id:
         order["proof_image_file_id"] = payload.proof_image_file_id
