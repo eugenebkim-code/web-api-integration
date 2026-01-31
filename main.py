@@ -16,6 +16,7 @@ from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 from courier_adapter import create_courier_order
 
+
 log = logging.getLogger("webapi")
 SERVICE_ACCOUNT_FILE = os.getenv("GOOGLE_SERVICE_ACCOUNT_FILE", "service_account.json")
 
@@ -45,10 +46,33 @@ def get_kitchen_spreadsheet_id(kitchen_id: int) -> str:
         raise RuntimeError(f"kitchen {kitchen_id} not found")
     return kitchen["spreadsheet_id"]
 
+_KITCHEN_ADDRESS_CACHE: Dict[int, str] = {}
+
+def get_kitchen_address_from_sheets(kitchen_id: int) -> Optional[str]:
+    if kitchen_id in _KITCHEN_ADDRESS_CACHE:
+        return _KITCHEN_ADDRESS_CACHE[kitchen_id]
+
+    try:
+        sheets = get_sheets_service_safe()
+        result = sheets.values().get(
+            spreadsheetId=get_kitchen_spreadsheet_id(kitchen_id),
+            range="kitchen!A1:C1",
+        ).execute()
+    except Exception as e:
+        log.error("[KITCHEN_SHEET_READ_FAILED] %s", e)
+        return None
+
+    values = result.get("values", [])
+    if not values or len(values[0]) < 2:
+        return None
+
+    address = values[0][1]
+    _KITCHEN_ADDRESS_CACHE[kitchen_id] = address
+    return address
 
 KITCHENS_REGISTRY = {
     1: {
-        "spreadsheet_id": "...",
+        "spreadsheet_id": "1dQFxRHsS2yFSV5rzB_q4q5WLv2GPaB2Gyawm2ZudPx4",
         "city": "dunpo",
         "active": True,
         "tg_chat_id": 2115245228,  # или обычный user_id
@@ -57,7 +81,21 @@ KITCHENS_REGISTRY = {
 
 # ===== Delivery price stub (MVP) =====
 MIN_DELIVERY_PRICE_KRW = 4000
-DELIVERY_PRICE_SOURCE = "stub_min_tariff"
+MAX_DELIVERY_DISTANCE_KM = 4.0  # стандартная зона доставки
+
+# ===== Geocoding / zones config =====
+
+GOOGLE_MAPS_API_KEY = os.getenv("GOOGLE_MAPS_API_KEY")
+
+# TODO: zones enforcement later
+# центры городов (пока один, расширяем потом)
+CITY_ZONES = {
+    "dunpo": {
+        "center": (36.7694, 127.0806),  # Dunpo approx
+        "radius_km": 4.0,
+        "zone": "DUNPO",
+    },
+}
 
 #===========1. App ===========#
 
@@ -161,18 +199,80 @@ class PickupETARequest(BaseModel):
 
 
 #5. Геокодинг и зоны (STUB)#
-def geocode_address(address: str):
-    # stub
-    return 37.0, 127.0
 
+import requests
+from fastapi.concurrency import run_in_threadpool
 
-def check_zone(lat: float, lng: float):
-    # stub
-    return {
-        "zone": "DUNPO",
-        "distance_km": 3.2,
-        "outside_zone": False,
+async def geocode_address(address: str) -> Optional[tuple[float, float]]:
+    if not GOOGLE_MAPS_API_KEY:
+        log.warning("GOOGLE GEOCODE SKIP: API KEY MISSING")
+        return None
+
+    url = "https://maps.googleapis.com/maps/api/geocode/json"
+    params = {
+        "address": address,
+        "key": GOOGLE_MAPS_API_KEY,
     }
+
+    try:
+        r = await run_in_threadpool(requests.get, url, params=params, timeout=5)
+        r.raise_for_status()
+        data = r.json()
+    except Exception:
+        log.exception("GOOGLE GEOCODE ERROR")
+        return None
+
+    if data.get("status") != "OK":
+        return None
+
+    loc = data["results"][0]["geometry"]["location"]
+    return loc["lat"], loc["lng"]
+
+# TODO: zones enforcement later
+def check_zone(city: str, lat: float, lng: float) -> dict:
+    city_cfg = CITY_ZONES.get(city.lower())
+    if not city_cfg:
+        return {
+            "zone": None,
+            "distance_km": None,
+            "outside_zone": True,
+        }
+
+    clat, clng = city_cfg["center"]
+    distance = haversine_km(lat, lng, clat, clng)
+
+    return {
+        "zone": city_cfg["zone"],
+        "distance_km": round(distance, 2),
+        "outside_zone": distance > city_cfg["radius_km"],
+    }
+
+import math
+
+def haversine_km(lat1, lon1, lat2, lon2) -> float:
+    R = 6371.0
+    phi1 = math.radians(lat1)
+    phi2 = math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlambda = math.radians(lon2 - lon1)
+
+    a = (
+        math.sin(dphi / 2) ** 2
+        + math.cos(phi1) * math.cos(phi2)
+        * math.sin(dlambda / 2) ** 2
+    )
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+    return R * c
+
+def calculate_delivery_price(distance_km: float) -> int:
+    base = MIN_DELIVERY_PRICE_KRW
+    variable = distance_km * 900 * 1.6
+    total = base + variable
+
+    # округление до 100
+    rounded = int(round(total / 100) * 100)
+    return max(rounded, MIN_DELIVERY_PRICE_KRW)
+
 
 
 #6. Address check (STUB) #
@@ -181,37 +281,70 @@ class AddressCheckRequest(BaseModel):
     city: str
     address: str
 
-
 class AddressCheckResponse(BaseModel):
     ok: bool
     normalized_address: str
     zone: Optional[str] = None
     message: Optional[str] = None
 
-
 @app.post(
     "/api/v1/address/check",
     response_model=AddressCheckResponse,
     dependencies=[Depends(require_api_key)],
 )
-def check_address(payload: AddressCheckRequest):
-    """
-    STUB v0:
-    - любой адрес считается корректным
-    - всегда inside zone
-    - ничего не блокируем
-    """
+async def check_address(payload: AddressCheckRequest):
 
-    normalized = (payload.address or "").strip()
+    kitchen_id = 1
+    kitchen_address = get_kitchen_address_from_sheets(kitchen_id)
+
+    if not kitchen_address:
+        return AddressCheckResponse(
+            ok=False,
+            normalized_address=payload.address,
+            zone=None,
+            message="Адрес кухни не задан",
+        )
+
+    kitchen_coords = await geocode_address(kitchen_address)
+    client_coords = await geocode_address(payload.address)
+
+    if not kitchen_coords or not client_coords:
+        return AddressCheckResponse(
+            ok=False,
+            normalized_address=payload.address,
+            zone=None,
+            message="Не удалось определить координаты",
+        )
+
+    distance_km = haversine_km(
+        kitchen_coords[0], kitchen_coords[1],
+        client_coords[0], client_coords[1],
+    )
+
+    distance_km = haversine_km(
+        kitchen_coords[0], kitchen_coords[1],
+        client_coords[0], client_coords[1],
+    )
+
+    price = calculate_delivery_price(distance_km)
+
+    # зона теперь ИНФОРМАЦИОННАЯ
+    STANDARD_ZONE_KM = 4.0
+
+    outside_zone = distance_km > STANDARD_ZONE_KM
 
     return AddressCheckResponse(
         ok=True,
-        normalized_address=normalized,
-        zone="STUB_ZONE",
-        message="Адрес принят (stub)",
+        normalized_address=payload.address,
+        zone=payload.city,
+        message=(
+            f"Адрес вне стандартной зоны ({round(distance_km,1)} км). "
+            f"Стоимость доставки {price} ₩"
+            if outside_zone
+            else f"Стоимость доставки {price} ₩"
+        ),
     )
-
-
+    
 #7. Создание заказа (idempotent)#
 
 @app.post(
@@ -233,6 +366,21 @@ async def create_order(payload: OrderCreateRequest):
     )
 
     print(">>> USING create_courier_order FROM", create_courier_order.__module__)
+
+    kitchen_address = get_kitchen_address_from_sheets(payload.kitchen_id)
+    kitchen_coords = await geocode_address(kitchen_address)
+    client_coords = await geocode_address(payload.delivery_address)
+
+    delivery_price = MIN_DELIVERY_PRICE_KRW
+    price_source = "fallback"
+
+    if kitchen_coords and client_coords:
+        distance_km = haversine_km(
+            kitchen_coords[0], kitchen_coords[1],
+            client_coords[0], client_coords[1],
+        )
+        delivery_price = calculate_delivery_price(distance_km)
+        price_source = "google_distance"
 
     # STUB: default kitchen_id
     if payload.kitchen_id is None:
@@ -297,8 +445,8 @@ async def create_order(payload: OrderCreateRequest):
         ),
 
         # ===== delivery price (STUB) =====
-        "delivery_price_krw": MIN_DELIVERY_PRICE_KRW,
-        "delivery_price_source": DELIVERY_PRICE_SOURCE,
+        "delivery_price_krw": delivery_price,
+        "delivery_price_source": price_source,
 
         # курьерка может быть временно недоступна
         # ❗ ВАЖНО: provider = courier, если доставка ЗАПРОШЕНА
