@@ -927,12 +927,15 @@ def load_order_from_sheets(order_id: str) -> dict | None:
 def courier_status_webhook(payload: CourierStatusWebhook):
     """
     Единая точка приема статусов от курьерки.
-    Не содержит UI-логики.
-    Не отправляет Telegram напрямую.
-
-    Делегирует всю бизнес-логику в /api/v1/orders/{order_id}/status,
-    чтобы не было расхождения между двумя обработчиками.
+    Делегирует обработку в update_order_status.
     """
+
+    log.info(
+        "[COURIER_WEBHOOK] order_id=%s status=%s proof=%s",
+        payload.order_id,
+        payload.status,
+        bool(payload.proof_image_file_id),
+    )
 
     # 1) пытаемся найти заказ по внутреннему order_id
     order = ORDERS.get(payload.order_id)
@@ -947,7 +950,7 @@ def courier_status_webhook(payload: CourierStatusWebhook):
             None,
         )
 
-    # 3) 🆕 ленивое восстановление из Sheets (эксклюзивное исключение)
+    # 3) ленивое восстановление из Sheets
     if not order:
         try:
             restored = load_order_from_sheets(payload.order_id)
@@ -972,6 +975,39 @@ def courier_status_webhook(payload: CourierStatusWebhook):
             list(ORDERS.keys()),
         )
         raise HTTPException(status_code=404, detail="Order not found")
+
+    # ✅ ГЛАВНОЕ ИСПРАВЛЕНИЕ: вызываем обновление статуса
+    canonical_id = order.get("order_id") or payload.order_id
+    
+    try:
+        # Создаем объект OrderStatusUpdate из webhook payload
+        status_update = OrderStatusUpdate(
+            status=payload.status,
+            proof_image_file_id=payload.proof_image_file_id,
+            proof_image_message_id=payload.proof_image_message_id,
+            eta_minutes=payload.eta_minutes,
+        )
+        
+        # Вызываем основную функцию обновления статуса
+        result = update_order_status(canonical_id, status_update)
+        
+        log.info(
+            "[COURIER_WEBHOOK] processed | order_id=%s result=%s",
+            payload.order_id,
+            result,
+        )
+        
+        return result
+        
+    except Exception as e:
+        log.exception(
+            "[COURIER_WEBHOOK] failed to process | order_id=%s",
+            payload.order_id,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to process webhook: {str(e)}"
+        )
 
 # ===== Events (fan-out base) =====
 
