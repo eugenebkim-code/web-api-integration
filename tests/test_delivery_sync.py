@@ -30,7 +30,7 @@ def create_base_order(client, order_id="TEST_ORDER_001", with_delivery=True):
     payload = {
         "order_id": order_id,
         "source": "kitchen",
-        "kitchen_id": 1,
+        "kitchen_id": kitchen_id,
         "client_tg_id": 111,
         "client_name": "Test",
         "client_phone": "010-0000",
