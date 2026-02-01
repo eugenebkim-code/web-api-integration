@@ -15,7 +15,7 @@ from delivery_fsm import is_valid_transition, is_final
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 from courier_adapter import create_courier_order
-
+from kitchen_context import load_registry
 
 log = logging.getLogger("webapi")
 SERVICE_ACCOUNT_FILE = os.getenv("GOOGLE_SERVICE_ACCOUNT_FILE", "service_account.json")
