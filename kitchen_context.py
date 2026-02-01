@@ -137,6 +137,7 @@ def load_registry(force: bool = False) -> None:
             },
             theme={},
         ),
+
         "kitchen_2": KitchenContext(
             kitchen_id="kitchen_2",
             status="active",
@@ -152,7 +153,56 @@ def load_registry(force: bool = False) -> None:
             },
             theme={},
         ),
+
+        "kitchen_3": KitchenContext(
+            kitchen_id="kitchen_3",
+            status="active",
+            spreadsheet_id="1IUPf2cExtl2IyikgglEGIDE6tTVVd8B5lpaMee-U6GE",
+            owner_chat_id=2115245228,
+            staff_chat_ids={2115245228},
+            city="Asan",
+            timezone=None,
+            commission_pct=0.0,
+            enabled_actions={
+                "geo:validate",
+                "order:create",
+            },
+            theme={},
+        ),
+
+        "kitchen_4": KitchenContext(
+            kitchen_id="kitchen_4",
+            status="active",
+            spreadsheet_id="1xjK95TRI4s-Q_5UuqEnpY0nKonhtg1qdsppNdcx9jHQ",
+            owner_chat_id=2115245228,
+            staff_chat_ids={2115245228},
+            city="Asan",
+            timezone=None,
+            commission_pct=0.0,
+            enabled_actions={
+                "geo:validate",
+                "order:create",
+            },
+            theme={},
+        ),
+
+        "kitchen_5": KitchenContext(
+            kitchen_id="kitchen_5",
+            status="active",
+            spreadsheet_id="1aLAOt31_sR6POGxqfq3ouAqoMt2dyBjw80908SZFF_Q",
+            owner_chat_id=2115245228,
+            staff_chat_ids={2115245228},
+            city="Asan",
+            timezone=None,
+            commission_pct=0.0,
+            enabled_actions={
+                "geo:validate",
+                "order:create",
+            },
+            theme={},
+        ),
     }
+    
     _LAST_LOADED_AT = datetime.utcnow()
 
     log.info("Kitchen Registry loaded")

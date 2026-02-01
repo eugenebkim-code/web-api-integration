@@ -17,6 +17,8 @@ from googleapiclient.discovery import build
 from courier_adapter import create_courier_order
 from kitchen_context import load_registry
 
+load_registry()
+
 log = logging.getLogger("webapi")
 SERVICE_ACCOUNT_FILE = os.getenv("GOOGLE_SERVICE_ACCOUNT_FILE", "service_account.json")
 
@@ -73,10 +75,39 @@ def get_kitchen_address_from_sheets(kitchen_id: int) -> Optional[str]:
 KITCHENS_REGISTRY = {
     1: {
         "spreadsheet_id": "1dQFxRHsS2yFSV5rzB_q4q5WLv2GPaB2Gyawm2ZudPx4",
+        "name": "Восток & Азия",
         "city": "dunpo",
         "active": True,
-        "tg_chat_id": 2115245228,  # или обычный user_id
-    }
+        "tg_chat_id": 2115245228,
+    },
+    2: {
+        "spreadsheet_id": "1oAFB9Xihqbdph217AEfXlPNTjuZVAlBr7UU4JDOmygQ",
+        "name": "Tokyo Roll",
+        "city": "dunpo",
+        "active": True,
+        "tg_chat_id": 2115245228,
+    },
+    3: {
+        "spreadsheet_id": "1IUPf2cExtl2IyikgglEGIDE6tTVVd8B5lpaMee-U6GE",
+        "name": "Русский Дом",
+        "city": "dunpo",
+        "active": True,
+        "tg_chat_id": 2115245228,
+    },
+    4: {
+        "spreadsheet_id": "1xjK95TRI4s-Q_5UuqEnpY0nKonhtg1qdsppNdcx9jHQ",
+        "name": "Urban Grill",
+        "city": "dunpo",
+        "active": True,
+        "tg_chat_id": 2115245228,
+    },
+    5: {
+        "spreadsheet_id": "1aLAOt31_sR6POGxqfq3ouAqoMt2dyBjw80908SZFF_Q",
+        "name": "Street Food Hub",
+        "city": "dunpo",
+        "active": True,
+        "tg_chat_id": 2115245228,
+    },
 }
 
 # ===== Delivery price stub (MVP) =====
@@ -99,10 +130,11 @@ CITY_ZONES = {
 
 #===========1. App ===========#
 
-app = FastAPI(
-    title="Unified Web API",
-    version="1.0",
-)
+from kitchen_context import load_registry
+
+load_registry()
+
+app = FastAPI()
 
 #2. Простая auth / роли (заглушка)#
 
@@ -204,6 +236,10 @@ import requests
 from fastapi.concurrency import run_in_threadpool
 
 async def geocode_address(address: str) -> Optional[tuple[float, float]]:
+    # ✅ ДОБАВИТЬ
+    if not address or not address.strip():
+        log.warning("[GEOCODE] Empty address, skipping")
+        return None
     if not GOOGLE_MAPS_API_KEY:
         log.warning("GOOGLE GEOCODE SKIP: API KEY MISSING")
         return None
@@ -897,7 +933,7 @@ def load_order_from_sheets(order_id: str) -> dict | None:
             if canon == order_id or (ext and ext == order_id):
                 return {
                     "order_id": canon or order_id,
-                    "kitchen_id": 1,
+                    "kitchen_id": kitchen_id,
                     "client_tg_id": int(row[1]) if len(row) > 1 and str(row[1]).isdigit() else None,
                     "status": row[IDX_STATUS] if len(row) > IDX_STATUS else None,
                     "delivery_order_id": ext or None,
