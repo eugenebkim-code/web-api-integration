@@ -16,6 +16,12 @@ from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 from courier_adapter import create_courier_order
 from kitchen_context import load_registry
+from kitchen_stubs import read_kitchen_catalog
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
 
 load_registry()
 
@@ -135,6 +141,59 @@ from kitchen_context import load_registry
 load_registry()
 
 app = FastAPI()
+
+from fastapi.middleware.cors import CORSMiddleware
+
+
+# ===== Kitchens (WebApp) =====
+
+from typing import List
+
+class KitchenOut(BaseModel):
+    kitchen_id: int
+    name: str
+    city: Optional[str]
+    status: str
+
+
+@app.get("/api/v1/kitchens/{kitchen_id}/catalog")
+def get_kitchen_catalog(kitchen_id: str):
+    sheets = get_sheets_service_safe()
+    return read_kitchen_catalog(
+        sheets=sheets,
+        kitchen_id=kitchen_id,
+    )
+
+from kitchen_context import list_kitchens, get
+
+@app.get("/api/v1/kitchens")
+def get_kitchens():
+    kitchens = []
+
+    for kitchen_id in list_kitchens():
+        kitchen = get(kitchen_id)
+        if not kitchen:
+            continue
+
+        kitchens.append({
+            "kitchen_id": kitchen.kitchen_id,
+            "name": kitchen.kitchen_id,  # пока так, без усложнений
+            "city": kitchen.city,
+            "status": kitchen.status,
+        })
+
+    return kitchens
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+    "http://localhost:5173",
+    "https://regression-friendly-fast-circuit.trycloudflare.com",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 #2. Простая auth / роли (заглушка)#
 
