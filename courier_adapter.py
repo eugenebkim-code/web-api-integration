@@ -5,8 +5,12 @@
 import httpx
 import os
 
-COURIER_API_URL = "http://127.0.0.1:9000"
-API_KEY = os.getenv("API_KEY", "DEV_KEY")
+COURIER_API_URL = os.getenv(
+    "COURIER_API_URL",
+    "http://127.0.0.1:9000",  # fallback только для локалки
+)
+
+API_KEY = os.getenv("COURIER_API_KEY", "DEV_KEY")
 
 # Ленивый импорт чтобы избежать circular import
 def _get_kitchen_address(kitchen_id: int) -> str:
