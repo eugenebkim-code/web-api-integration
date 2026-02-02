@@ -144,6 +144,19 @@ app = FastAPI()
 
 from fastapi.middleware.cors import CORSMiddleware
 
+app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:5173",
+        "https://vuedevmarketplace-production.up.railway.app",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 # ===== Kitchens (WebApp) =====
 
@@ -183,17 +196,6 @@ def get_kitchens():
         })
 
     return kitchens
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
-    "http://localhost:5173",
-    "https://regression-friendly-fast-circuit.trycloudflare.com",
-    ],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 #2. Простая auth / роли (заглушка)#
 
