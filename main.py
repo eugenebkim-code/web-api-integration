@@ -3,12 +3,10 @@
 from fastapi import FastAPI, Header, HTTPException, Depends
 from datetime import datetime
 from typing import Optional, Dict
-import uuid
-import json
 import os
 import logging
 from pydantic import BaseModel
-
+import json
 from delivery_fanout import fanout_delivery_status
 from sheets_sync import sync_delivery_status_to_kitchen
 from delivery_fsm import is_valid_transition, is_final
@@ -17,6 +15,7 @@ from googleapiclient.discovery import build
 from courier_adapter import create_courier_order
 from kitchen_context import load_registry
 from kitchen_stubs import read_kitchen_catalog
+
 
 logging.basicConfig(
     level=logging.INFO,
@@ -30,16 +29,34 @@ SERVICE_ACCOUNT_FILE = os.getenv("GOOGLE_SERVICE_ACCOUNT_FILE", "service_account
 
 _sheets_service = None
 
+import base64
+import tempfile
 
 def get_sheets_service_safe():
     global _sheets_service
     if _sheets_service is not None:
         return _sheets_service
 
-    credentials = Credentials.from_service_account_file(
-        SERVICE_ACCOUNT_FILE,
-        scopes=["https://www.googleapis.com/auth/spreadsheets"],
-    )
+    b64 = os.getenv("GOOGLE_SERVICE_ACCOUNT_B64")
+
+    if b64:
+        try:
+            creds_json = base64.b64decode(b64).decode("utf-8")
+            creds_dict = json.loads(creds_json)
+
+            credentials = Credentials.from_service_account_info(
+                creds_dict,
+                scopes=["https://www.googleapis.com/auth/spreadsheets"],
+            )
+        except Exception as e:
+            log.exception("FAILED TO LOAD GOOGLE CREDS FROM B64")
+            raise RuntimeError("Invalid GOOGLE_SERVICE_ACCOUNT_B64") from e
+    else:
+        # fallback для локальной разработки
+        credentials = Credentials.from_service_account_file(
+            SERVICE_ACCOUNT_FILE,
+            scopes=["https://www.googleapis.com/auth/spreadsheets"],
+        )
 
     _sheets_service = build(
         "sheets", "v4", credentials=credentials
@@ -136,22 +153,13 @@ CITY_ZONES = {
 
 #===========1. App ===========#
 
-from kitchen_context import load_registry
-
-load_registry()
-
-app = FastAPI()
-
 from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "https://vuedevmarketplace-production.up.railway.app",
-    ],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -967,46 +975,52 @@ def load_order_from_sheets(order_id: str) -> dict | None:
     Восстановление заказа из Google Sheets.
     Используется ТОЛЬКО если заказа нет в памяти.
 
-    EXCLUSIVE:
-    - поддерживает поиск как по canonical order_id (колонка C),
-      так и по external delivery_order_id (колонка W по твоему листу, но проверим индексы ниже).
+    Поддерживает поиск:
+    - по canonical order_id (колонка C)
+    - по external delivery_order_id (колонка W)
+
+    Работает с несколькими кухнями.
     """
     try:
         sheets = get_sheets_service_safe()
 
-        result = sheets.values().get(
-            spreadsheetId=get_kitchen_spreadsheet_id(1),
-            range="orders!A:AD",
-        ).execute()
+        for kitchen_id, kitchen in KITCHENS_REGISTRY.items():
+            spreadsheet_id = kitchen["spreadsheet_id"]
 
-        rows = result.get("values", [])
+            result = sheets.values().get(
+                spreadsheetId=spreadsheet_id,
+                range="orders!A:AD",
+            ).execute()
 
-        # индексы (0-based) внутри A..Z
-        IDX_ORDER_ID = 2        # C
-        IDX_STATUS = 19         # T? ты используешь 19 выше, оставляем
-        IDX_DELIVERY_ORDER_ID = 22  # W? у тебя было 22, оставляем как было
+            rows = result.get("values", [])
 
-        for row in rows:
-            # safe getters
-            canon = row[IDX_ORDER_ID] if len(row) > IDX_ORDER_ID else ""
-            ext = row[IDX_DELIVERY_ORDER_ID] if len(row) > IDX_DELIVERY_ORDER_ID else ""
+            # индексы (0-based)
+            IDX_ORDER_ID = 2           # C
+            IDX_STATUS = 19            # T
+            IDX_DELIVERY_ORDER_ID = 22 # W
 
-            # совпадение по canonical или по external
-            if canon == order_id or (ext and ext == order_id):
-                return {
-                    "order_id": canon or order_id,
-                    "kitchen_id": kitchen_id,
-                    "client_tg_id": int(row[1]) if len(row) > 1 and str(row[1]).isdigit() else None,
-                    "status": row[IDX_STATUS] if len(row) > IDX_STATUS else None,
-                    "delivery_order_id": ext or None,
-                    "courier_decision": "requested",
-                    "delivery_provider": "courier",
-                    "source": "kitchen",
-                    "city": None,
-                    "pickup_address": None,
-                    "delivery_address": None,
-                    # важно: чтобы update_order_status не игнорировал
-                }
+            for row in rows:
+                canon = row[IDX_ORDER_ID] if len(row) > IDX_ORDER_ID else ""
+                ext = row[IDX_DELIVERY_ORDER_ID] if len(row) > IDX_DELIVERY_ORDER_ID else ""
+
+                if canon == order_id or (ext and ext == order_id):
+                    return {
+                        "order_id": canon or order_id,
+                        "kitchen_id": kitchen_id,
+                        "client_tg_id": (
+                            int(row[1])
+                            if len(row) > 1 and str(row[1]).isdigit()
+                            else None
+                        ),
+                        "status": row[IDX_STATUS] if len(row) > IDX_STATUS else None,
+                        "delivery_order_id": ext or None,
+                        "courier_decision": "requested",
+                        "delivery_provider": "courier",
+                        "source": "kitchen",
+                        "city": kitchen.get("city"),
+                        "pickup_address": None,
+                        "delivery_address": None,
+                    }
 
     except Exception as e:
         log.error(f"[SHEETS_RESTORE_FAILED] {order_id} {e}")
