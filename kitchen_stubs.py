@@ -1,3 +1,5 @@
+#kitchen_stubs.py
+
 from typing import Dict, List
 import logging
 
@@ -32,6 +34,7 @@ def read_kitchen_catalog(
     categories_map: Dict[str, dict] = {}
 
     for idx, row in enumerate(rows, start=2):
+        
         try:
             product_id = row[0].strip()
             name = row[1].strip()
@@ -45,13 +48,13 @@ def read_kitchen_catalog(
             category = row[4].strip()
 
             # M customer_price (index 12)
-            raw_price = row[12] if len(row) > 12 else None
-            if raw_price in (None, "", "0"):
+            raw_customer_price = row[12] if len(row) > 12 else None
+            if raw_customer_price in (None, "", "0"):
                 raise ValueError("empty customer_price")
 
-            price = int(
+            customer_price = int(
                 float(
-                    str(raw_price)
+                    str(raw_customer_price)
                     .replace("₩", "")
                     .replace(",", "")
                     .strip()
@@ -64,16 +67,15 @@ def read_kitchen_catalog(
             log.warning(f"[CATALOG] skip row {idx}: {e}")
             continue
 
-        products.append(
-            {
-                "id": product_id,
-                "category_id": category,
-                "name": name,
-                "price": price,
-                "available": available,
-                "photo_url": photo_url,
-            }
-        )
+        products.append({
+            "id": product_id,
+            "name": name,
+            "price": customer_price,   # ← ТОЛЬКО customer_price
+            "available": available,
+            "category_id": category,
+            "photo_url": photo_url,
+            "kitchen_id": kitchen_id,
+        })
 
         if category not in categories_map:
             categories_map[category] = {

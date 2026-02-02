@@ -381,7 +381,8 @@ class AddressCheckResponse(BaseModel):
     normalized_address: str
     zone: Optional[str] = None
     message: Optional[str] = None
-    price_krw: Optional[int] = None
+    # 👇 КРИТИЧНО ДЛЯ VUE
+    delivery_price: Optional[int] = None
     distance_km: Optional[float] = None
 
 @app.post(
@@ -434,7 +435,7 @@ async def check_address(payload: AddressCheckRequest):
         ok=True,
         normalized_address=payload.address,
         zone=payload.city,
-        price_krw=price,
+        delivery_price=price,  # 👈 ВАЖНО
         distance_km=round(distance_km, 2),
         message=(
             f"Адрес вне стандартной зоны ({round(distance_km,1)} км). "
