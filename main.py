@@ -386,8 +386,9 @@ def calculate_delivery_price(distance_km: float) -> int:
 #6. Address check (STUB) #
 
 class AddressCheckRequest(BaseModel):
-    city: str
     address: str
+    kitchen_id: int
+    city: str | None = None
 
 class AddressCheckResponse(BaseModel):
     ok: bool
@@ -405,7 +406,7 @@ class AddressCheckResponse(BaseModel):
 )
 async def check_address(payload: AddressCheckRequest):
 
-    kitchen_id = 1
+    kitchen_id = payload.kitchen_id
     kitchen_address = get_kitchen_address_from_sheets(kitchen_id)
 
     if not kitchen_address:
@@ -1181,6 +1182,112 @@ def get_payment_proof(upload_id: str):
         path=meta["path"],
         media_type=meta["content_type"],
     )
+# ===== WebAPP =====
+
+from typing import Union
+
+def parse_kitchen_id(value: Union[str, int]) -> Optional[int]:
+    if value is None:
+        return None
+    if isinstance(value, int):
+        return value
+    s = str(value).strip()
+    if s.startswith("kitchen_"):
+        tail = s.split("kitchen_", 1)[1]
+        if tail.isdigit():
+            return int(tail)
+        return None
+    if s.isdigit():
+        return int(s)
+    return None
+
+
+class AddressCheckRequest(BaseModel):
+    address: str
+    kitchen_id: Union[str, int]
+    city: str | None = None
+
+
+class AddressCheckResponse(BaseModel):
+    ok: bool
+    normalized_address: str
+    zone: Optional[str] = None
+    message: Optional[str] = None
+    delivery_price: Optional[int] = None
+    distance_km: Optional[float] = None
+
+
+async def _check_address_impl(payload: AddressCheckRequest) -> AddressCheckResponse:
+    kitchen_id_int = parse_kitchen_id(payload.kitchen_id)
+    if not kitchen_id_int:
+        return AddressCheckResponse(
+            ok=False,
+            normalized_address=payload.address,
+            zone=None,
+            message="kitchen_id не найден",
+        )
+
+    kitchen_address = get_kitchen_address_from_sheets(kitchen_id_int)
+    if not kitchen_address:
+        return AddressCheckResponse(
+            ok=False,
+            normalized_address=payload.address,
+            zone=None,
+            message="Адрес кухни не задан",
+        )
+
+    kitchen_coords = await geocode_address(kitchen_address)
+    client_coords = await geocode_address(payload.address)
+
+    if not kitchen_coords or not client_coords:
+        return AddressCheckResponse(
+            ok=False,
+            normalized_address=payload.address,
+            zone=None,
+            message="Не удалось определить координаты",
+        )
+
+    distance_km = haversine_km(
+        kitchen_coords[0], kitchen_coords[1],
+        client_coords[0], client_coords[1],
+    )
+
+    price = calculate_delivery_price(distance_km)
+
+    STANDARD_ZONE_KM = 4.0
+    outside_zone = distance_km > STANDARD_ZONE_KM
+
+    return AddressCheckResponse(
+        ok=True,
+        normalized_address=payload.address,
+        zone=payload.city,
+        delivery_price=price,
+        distance_km=round(distance_km, 2),
+        message=(
+            f"Адрес вне стандартной зоны ({round(distance_km,1)} км). Стоимость доставки {price} ₩"
+            if outside_zone
+            else f"Стоимость доставки {price} ₩"
+        ),
+    )
+
+
+@app.post(
+    "/api/v1/address/check",
+    response_model=AddressCheckResponse,
+    dependencies=[Depends(require_api_key)],
+)
+async def check_address(payload: AddressCheckRequest):
+    return await _check_address_impl(payload)
+
+
+# алиас под фронт, чтобы не менять Vue еще 10 раз
+@app.post(
+    "/api/v1/validate-address",
+    response_model=AddressCheckResponse,
+    dependencies=[Depends(require_api_key)],
+)
+async def validate_address(payload: AddressCheckRequest):
+    return await _check_address_impl(payload)
 
 # ===== Utilities =====
 
