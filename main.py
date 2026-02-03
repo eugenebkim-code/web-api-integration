@@ -584,7 +584,7 @@ async def create_webapp_order(payload: WebAppOrderCreateRequest):
     # 7) append в Sheets
     sheets = get_sheets_service_safe()
     sheets.values().append(
-        spreadsheetId=kitchen["spreadsheet_id"],
+        spreadsheetId=kitchen.spreadsheet_id,
         range="orders!A:AD",
         valueInputOption="RAW",
         body={"values": [row_values]},
