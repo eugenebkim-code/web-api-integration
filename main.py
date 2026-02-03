@@ -518,8 +518,14 @@ async def create_webapp_order(payload: WebAppOrderCreateRequest):
 
     # 3) проверка upload_id
     upload_id = payload.payment.upload_id
-    if upload_id not in UPLOADS:
-        raise HTTPException(status_code=409, detail="Payment proof not found")
+
+    # допускаем upload_id из WebApp без in-memory проверки
+    # existence проверяется позже, при работе кухни
+    if not upload_id.startswith("upload_"):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid payment proof id",
+        )
 
     # 4) items -> legacy string
     items_str = "; ".join(
