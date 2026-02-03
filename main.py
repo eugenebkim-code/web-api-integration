@@ -1133,49 +1133,7 @@ def update_order_status(order_id: str, payload: OrderStatusUpdate):
         )
 
     return {"status": "ok"}
-# ===== Web API: helper =====
-def notify_kitchen_webapp_order(*, kitchen_id: str, spreadsheet_id: str) -> None:
-    """
-    Уведомляем кухню о новом WebApp-заказе.
-    Кухня сама решает, что делать дальше.
-    """
-    payload = {
-        "event": "webapp_order_created",
-        "kitchen_id": kitchen_id,
-        "spreadsheet_id": spreadsheet_id,
-    }
 
-    # URL кухни (у тебя уже есть или будет вынесен в ENV)
-    import os
-
-    kitchen_webhook_url = os.getenv("KITCHEN_WEBHOOK_URL")
-    if not kitchen_webhook_url:
-        log.error("KITCHEN_WEBHOOK_URL is not set")
-        return
-
-    import httpx
-
-    with httpx.Client(timeout=3.0) as client:
-        client.post(
-            kitchen_webhook_url,
-            json=payload,
-        )
-# ===== webhooks =====
-@app.post("/internal/webapp/event")
-async def on_webapp_event(data: dict):
-    if data.get("event") != "webapp_order_created":
-        return {"status": "ignored"}
-
-    spreadsheet_id = data["spreadsheet_id"]
-
-    # просто логируем событие
-    log.info(
-        "[WEBAPP_EVENT] order created | spreadsheet_id=%s",
-        spreadsheet_id,
-    )
-
-    # ❗ дальше кухня САМА подхватывает заказ своим scheduler'ом
-    return {"status": "ok"}
 # ===== WebApp uploads (payment proof) =====
 
 from fastapi import UploadFile, File
