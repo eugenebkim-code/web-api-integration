@@ -601,15 +601,6 @@ async def create_webapp_order(payload: WebAppOrderCreateRequest):
 
     log.info("[WEBAPP_ORDER_CREATED] %s", payload.order_id)
 
-    # fire-and-forget event to kitchen bot
-    try:
-        notify_kitchen_webapp_order(
-            kitchen_id=kitchen.kitchen_id,
-            spreadsheet_id=kitchen.spreadsheet_id,
-        )
-    except Exception as e:
-        log.exception("Failed to notify kitchen about webapp order")
-
     return {
         "status": "ok",
         "order_id": payload.order_id,
