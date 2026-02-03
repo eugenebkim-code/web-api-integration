@@ -1,10 +1,7 @@
 fastapi
-uvicorn
-python-telegram-bot==20.*
-google-api-python-client
-google-auth
-fastapi
 uvicorn[standard]
+python-multipart
+python-telegram-bot==20.*
 python-dotenv
 httpx
 google-api-python-client
