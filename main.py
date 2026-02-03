@@ -976,6 +976,64 @@ def update_order_status(order_id: str, payload: OrderStatusUpdate):
         )
 
     return {"status": "ok"}
+# ===== Courier -> Kitchen status mapping =====
+
+# ===== WebApp uploads (payment proof) =====
+
+from fastapi import UploadFile, File
+from uuid import uuid4
+from fastapi.responses import FileResponse
+import os
+
+UPLOADS_DIR = os.getenv("UPLOADS_DIR", "./uploads")
+os.makedirs(UPLOADS_DIR, exist_ok=True)
+
+UPLOADS = {}  # upload_id -> meta
+
+
+@app.post(
+    "/api/v1/uploads/payment-proof",
+    dependencies=[Depends(require_api_key)],
+)
+async def upload_payment_proof(file: UploadFile = File(...)):
+    if file.content_type not in ("image/jpeg", "image/png"):
+        raise HTTPException(status_code=415, detail="Unsupported file type")
+
+    upload_id = f"upload_{uuid4().hex}"
+
+    ext = ".jpg" if file.content_type == "image/jpeg" else ".png"
+    path = os.path.join(UPLOADS_DIR, upload_id + ext)
+
+    with open(path, "wb") as f:
+        f.write(await file.read())
+
+    UPLOADS[upload_id] = {
+        "path": path,
+        "content_type": file.content_type,
+        "created_at": datetime.utcnow().isoformat(),
+    }
+
+    log.info("[UPLOAD] payment proof saved upload_id=%s", upload_id)
+
+    return {
+        "status": "ok",
+        "upload_id": upload_id,
+    }
+
+
+@app.get(
+    "/api/v1/uploads/payment-proof/{upload_id}",
+    dependencies=[Depends(require_api_key)],
+)
+def get_payment_proof(upload_id: str):
+    meta = UPLOADS.get(upload_id)
+    if not meta:
+        raise HTTPException(status_code=404, detail="Upload not found")
+
+    return FileResponse(
+        path=meta["path"],
+        media_type=meta["content_type"],
+    )
 
 # ===== Utilities =====
 

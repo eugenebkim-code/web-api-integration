@@ -45,6 +45,7 @@ def sync_delivery_status_to_kitchen(
     courier_last_error: str | None = None,
     courier_sent_at: str | None = None,
     delivery_confirmed_at: str | None = None,
+    delivery_price_krw: int | None = None,  # 👈 НОВОЕ
 ):
     """
     Sync delivery-related status into kitchen orders sheet.
