@@ -268,7 +268,7 @@ class AddressVerifyResponse(BaseModel):
 class OrderCreateRequest(BaseModel):
     order_id: str
     source: str
-    kitchen_id: Optional[int] = None  # STUB: allow default kitchen
+    kitchen_id: Optional[int] = None
     client_tg_id: int
     client_name: str
     client_phone: str
@@ -277,6 +277,9 @@ class OrderCreateRequest(BaseModel):
     pickup_eta_at: Optional[datetime] = None
     city: str
     comment: Optional[str] = None
+
+    # 👇 ПРИНИМАЕМ ЦЕНУ ОТ WEBAPP
+    delivery_price: Optional[int] = None
 
 
 class OrderCreateResponse(BaseModel):
@@ -484,7 +487,13 @@ async def create_order(payload: OrderCreateRequest):
     delivery_price = MIN_DELIVERY_PRICE_KRW
     price_source = "fallback"
 
-    if kitchen_coords and client_coords:
+    # ✅ 1) если WebApp уже посчитал цену — берем её
+    if payload.delivery_price is not None and payload.delivery_price > 0:
+        delivery_price = payload.delivery_price
+        price_source = "from_webapp"
+
+    # ✅ 2) иначе считаем сами (fallback)
+    elif kitchen_coords and client_coords:
         distance_km = haversine_km(
             kitchen_coords[0], kitchen_coords[1],
             client_coords[0], client_coords[1],
