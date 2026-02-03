@@ -495,9 +495,18 @@ def make_synthetic_user_id(order_id: str) -> int:
 )
 async def create_webapp_order(payload: WebAppOrderCreateRequest):
     # 1) kitchen context
-    kitchen = get(payload.kitchen_id)
+    kitchen_key = (
+        payload.kitchen_id
+        if isinstance(payload.kitchen_id, str)
+        else f"kitchen_{payload.kitchen_id}"
+    )
+
+    kitchen = get(kitchen_key)
     if not kitchen:
-        raise HTTPException(status_code=404, detail="Kitchen not found")
+        raise HTTPException(
+            status_code=404,
+            detail=f"Kitchen not found: {kitchen_key}",
+        )
 
     # 2) idempotency: проверка по ORDERS
     if payload.order_id in ORDERS:

@@ -1,0 +1,17 @@
+{
+  "order_id": "webapp_test_001",
+  "kitchen_id": 1,
+  "city": "dunpo",
+  "items": [
+    { "name": "Рамен", "qty": 2 }
+  ],
+  "total_price": 23000,
+  "delivery": {
+    "address": "경기도 아산시 둔포면",
+    "price_krw": 5000
+  },
+  "comment": "без лука",
+  "payment": {
+    "upload_id": "upload_efb2caab4ca34a01af193f0488fee55d"
+  }
+}
