@@ -457,7 +457,140 @@ async def check_address(payload: AddressCheckRequest):
             else f"Стоимость доставки {price} ₩"
         ),
     )
-    
+# ===== WebApp order models =====
+
+from typing import List
+
+class WebAppOrderItem(BaseModel):
+    name: str
+    qty: int
+
+class WebAppPaymentProof(BaseModel):
+    upload_id: str
+
+class WebAppDelivery(BaseModel):
+    address: str
+    price_krw: int
+
+class WebAppOrderCreateRequest(BaseModel):
+    order_id: str
+    kitchen_id: int
+    city: str
+
+    items: List[WebAppOrderItem]
+    total_price: int
+
+    delivery: WebAppDelivery
+    comment: Optional[str] = None
+
+    payment: WebAppPaymentProof
+
+def make_synthetic_user_id(order_id: str) -> int:
+    return -abs(hash(order_id)) % (10**9)
+#=====================Endpoint создания заказа====================#
+
+@app.post(
+    "/api/v1/webapp/orders",
+    dependencies=[Depends(require_api_key)],
+)
+async def create_webapp_order(payload: WebAppOrderCreateRequest):
+    # 1) kitchen context
+    kitchen = get(payload.kitchen_id)
+    if not kitchen:
+        raise HTTPException(status_code=404, detail="Kitchen not found")
+
+    # 2) idempotency: проверка по ORDERS
+    if payload.order_id in ORDERS:
+        return {
+            "status": "ok",
+            "order_id": payload.order_id,
+            "already_exists": True,
+        }
+
+    # 3) проверка upload_id
+    upload_id = payload.payment.upload_id
+    if upload_id not in UPLOADS:
+        raise HTTPException(status_code=409, detail="Payment proof not found")
+
+    # 4) items -> legacy string
+    items_str = "; ".join(
+        f"{i.name} x{i.qty}" for i in payload.items
+    )
+
+    # 5) synthetic user
+    synthetic_user_id = make_synthetic_user_id(payload.order_id)
+
+    # 6) row_values (A:AD)
+    row_values = [
+        payload.order_id,                         # A order_id
+        datetime.utcnow().isoformat(),            # B created_at
+
+        synthetic_user_id,                        # C user_id
+        "",                                       # D username
+
+        items_str,                                # E items
+        payload.total_price,                      # F total_price
+
+        "Доставка",                               # G type
+        payload.comment or "",                    # H comment
+
+        f"upload:{upload_id}",                    # I payment_proof
+
+        "created",                                # J status
+
+        "",                                       # K handled_at
+        "",                                       # L handled_by
+        "",                                       # M reaction_seconds
+
+        payload.delivery.address,                 # N address
+        payload.delivery.price_krw,               # O delivery_fee
+
+        "webapp",                                 # P source
+
+        "",                                       # Q staff_message_id
+        "",                                       # R pickup_eta_at
+        "",                                       # S eta_source
+
+        "delivery_new",                           # T delivery_state
+
+        "",                                       # U courier_status_raw
+        "",                                       # V courier_external_id
+        "",                                       # W courier_external_id (legacy)
+        "",                                       # X courier_status_detail
+        "",                                       # Y courier_last_error
+        "",                                       # Z courier_sent_at
+
+        "",                                       # AA delivery_confirmed_at
+        "",                                       # AB platform_commission
+        "created",                                # AC commission_status
+        "",                                       # AD owner_debt_snapshot
+    ]
+
+    # 7) append в Sheets
+    sheets = get_sheets_service_safe()
+    sheets.values().append(
+        spreadsheetId=kitchen["spreadsheet_id"],
+        range="orders!A:AD",
+        valueInputOption="RAW",
+        body={"values": [row_values]},
+    ).execute()
+
+    # 8) минимальная регистрация в памяти
+    ORDERS[payload.order_id] = {
+        "order_id": payload.order_id,
+        "source": "webapp",
+        "kitchen_id": payload.kitchen_id,
+        "status": "created",
+        "delivery_state": "delivery_new",
+    }
+
+    log.info("[WEBAPP_ORDER_CREATED] %s", payload.order_id)
+
+    return {
+        "status": "ok",
+        "order_id": payload.order_id,
+    }
+
 #7. Создание заказа (idempotent)#
 
 @app.post(
