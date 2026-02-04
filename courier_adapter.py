@@ -14,8 +14,7 @@ API_KEY = os.getenv("COURIER_API_KEY", "DEV_KEY")
 
 # Ленивый импорт чтобы избежать circular import
 def _get_kitchen_address(kitchen_id: int) -> str:
-    from main import get_kitchen_address_from_sheets
-    return get_kitchen_address_from_sheets(kitchen_id) or ""
+    return ""
 
 async def create_courier_order(payload: dict) -> str:
     print("USING create_courier_order FROM courier_adapter")
