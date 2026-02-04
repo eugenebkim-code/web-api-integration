@@ -155,11 +155,24 @@ CITY_ZONES = {
 
 from fastapi.middleware.cors import CORSMiddleware
 
+# ===== lifespan =====
 
+from contextlib import asynccontextmanager
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    paths = []
+    for r in app.router.routes:
+        p = getattr(r, "path", None)
+        m = getattr(r, "methods", None)
+        if p:
+            paths.append((p, ",".join(sorted(list(m))) if m else ""))
+    log.info("[ROUTES] %s", paths)
+    yield
+
+from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI(lifespan=lifespan)
-
-
 
 app.add_middleware(
     CORSMiddleware,
@@ -168,7 +181,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
 
 # ===== Kitchens (WebApp) =====
 
@@ -209,22 +221,7 @@ def get_kitchens():
 
     return kitchens
 
-
-from contextlib import asynccontextmanager
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    paths = []
-    for r in app.router.routes:
-        p = getattr(r, "path", None)
-        m = getattr(r, "methods", None)
-        if p:
-            paths.append((p, ",".join(sorted(list(m))) if m else ""))
-    log.info("[ROUTES] %s", paths)
-    yield
-
 #2. Простая auth / роли (заглушка)#
-
 
 
 API_KEY = "DEV_KEY"
@@ -1365,6 +1362,19 @@ def load_order_from_sheets(order_id: str) -> dict | None:
 
     return None
 
+
+#10. Заказы клиента (WebApp / курьерка)#
+
+@app.get(
+    "/api/v1/clients/{client_tg_id}/orders",
+    dependencies=[Depends(require_api_key)],
+)
+def get_client_orders(client_tg_id: int):
+    return [
+        o for o in ORDERS.values()
+        if o["client_tg_id"] == client_tg_id
+    ]
+
 # ===== Endpoint приема статуса =====
 
 @app.post(
@@ -1491,17 +1501,8 @@ def map_courier_status_to_kitchen(courier_status: str) -> str | None:
     return COURIER_TO_KITCHEN_STATUS.get(courier_status)
 
 
-#10. Заказы клиента (WebApp / курьерка)#
 
-@app.get(
-    "/api/v1/clients/{client_tg_id}/orders",
-    dependencies=[Depends(require_api_key)],
-)
-def get_client_orders(client_tg_id: int):
-    return [
-        o for o in ORDERS.values()
-        if o["client_tg_id"] == client_tg_id
-    ]
+
 
 print("### WEB API MAIN LOADED ###")
 
