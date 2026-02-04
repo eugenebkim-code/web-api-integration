@@ -400,6 +400,14 @@ class AddressCheckResponse(BaseModel):
     distance_km: Optional[float] = None
 
 @app.post(
+    "/api/v1/validate-address",
+    response_model=AddressCheckResponse,
+    dependencies=[Depends(require_api_key)],
+)
+async def validate_address_alias(payload: AddressCheckRequest):
+    return await _check_address_impl(payload)
+
+@app.post(
     "/api/v1/address/check",
     response_model=AddressCheckResponse,
     dependencies=[Depends(require_api_key)],
