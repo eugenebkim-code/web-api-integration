@@ -450,15 +450,14 @@ async def check_address(payload: AddressCheckRequest):
         client_coords[0], client_coords[1],
     )
 
-    distance_km = haversine_km(
-        kitchen_coords[0], kitchen_coords[1],
-        client_coords[0], client_coords[1],
-    )
-
-    price = calculate_delivery_price(distance_km)
-
     # зона теперь ИНФОРМАЦИОННАЯ
     STANDARD_ZONE_KM = 4.0
+    MIN_DELIVERY_PRICE_KRW = 4000
+
+    if distance_km <= STANDARD_ZONE_KM:
+        price = MIN_DELIVERY_PRICE_KRW
+    else:
+        price = calculate_delivery_price(distance_km)
 
     outside_zone = distance_km > STANDARD_ZONE_KM
 
@@ -1266,9 +1265,14 @@ async def _check_address_impl(payload: AddressCheckRequest) -> AddressCheckRespo
         client_coords[0], client_coords[1],
     )
 
-    price = calculate_delivery_price(distance_km)
-
     STANDARD_ZONE_KM = 4.0
+    MIN_DELIVERY_PRICE_KRW = 4000
+
+    if distance_km <= STANDARD_ZONE_KM:
+        price = MIN_DELIVERY_PRICE_KRW
+    else:
+        price = calculate_delivery_price(distance_km)
+
     outside_zone = distance_km > STANDARD_ZONE_KM
 
     return AddressCheckResponse(
