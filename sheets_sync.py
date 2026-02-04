@@ -93,6 +93,7 @@ def sync_delivery_status_to_kitchen(
 
         existing_sent_at = _norm(safe_cell(existing_row, 25))   # Z
         existing_confirmed = _norm(safe_cell(existing_row, 26)) # AA
+        
 
         data = []
 

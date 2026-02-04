@@ -475,19 +475,19 @@ class WebAppDelivery(BaseModel):
 
 class WebAppOrderCreateRequest(BaseModel):
     order_id: str
+
+    # ✅ Telegram user id (из WebApp)
+    user_id: Optional[int] = None
+
     kitchen_id: int
     city: str
-
     items: List[WebAppOrderItem]
     total_price: int
-
     delivery: WebAppDelivery
     comment: Optional[str] = None
-
     payment: WebAppPaymentProof
 
-def make_synthetic_user_id(order_id: str) -> int:
-    return -abs(hash(order_id)) % (10**9)
+
 #=====================Endpoint создания заказа====================#
 
 @app.post(
@@ -534,14 +534,14 @@ async def create_webapp_order(payload: WebAppOrderCreateRequest):
     )
 
     # 5) synthetic user
-    synthetic_user_id = make_synthetic_user_id(payload.order_id)
+    
 
     # 6) row_values (A:AD)
     row_values = [
         payload.order_id,                         # A order_id
         datetime.utcnow().isoformat(),            # B created_at
 
-        synthetic_user_id,                        # C user_id
+        payload.user_id or "",                    # C user_id
         "",                                       # D username
 
         items_str,                                # E items
@@ -1282,7 +1282,7 @@ async def check_address(payload: AddressCheckRequest):
 
 # алиас под фронт, чтобы не менять Vue еще 10 раз
 @app.post(
-    "/api/v1/validate-address",
+    "/api/v1/address/check",
     response_model=AddressCheckResponse,
     dependencies=[Depends(require_api_key)],
 )
