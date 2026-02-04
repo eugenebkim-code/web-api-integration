@@ -1169,10 +1169,7 @@ async def upload_payment_proof(file: UploadFile = File(...)):
     }
 
 
-@app.get(
-    "/api/v1/uploads/payment-proof/{upload_id}",
-    dependencies=[Depends(require_api_key)],
-)
+@app.get("/api/v1/uploads/payment-proof/{upload_id}")
 def get_payment_proof(upload_id: str):
     meta = UPLOADS.get(upload_id)
     if not meta:
