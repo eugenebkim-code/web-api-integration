@@ -399,19 +399,11 @@ class AddressCheckResponse(BaseModel):
     delivery_price: Optional[int] = None
     distance_km: Optional[float] = None
 
-@app.post(
-    "/api/v1/validate-address",
-    response_model=AddressCheckResponse,
-    dependencies=[Depends(require_api_key)],
-)
+@app.post("/api/v1/validate-address", response_model=AddressCheckResponse, dependencies=[Depends(require_api_key)])
 async def validate_address_alias(payload: AddressCheckRequest):
     return await _check_address_impl(payload)
 
-@app.post(
-    "/api/v1/address/check",
-    response_model=AddressCheckResponse,
-    dependencies=[Depends(require_api_key)],
-)
+@app.post("/api/v1/validate-address", response_model=AddressCheckResponse, dependencies=[Depends(require_api_key)])
 async def check_address(payload: AddressCheckRequest):
 
     kitchen_id = payload.kitchen_id
@@ -1494,5 +1486,20 @@ def get_client_orders(client_tg_id: int):
         if o["client_tg_id"] == client_tg_id
     ]
 
+from contextlib import asynccontextmanager
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    paths = []
+    for r in app.router.routes:
+        p = getattr(r, "path", None)
+        m = getattr(r, "methods", None)
+        if p:
+            paths.append((p, ",".join(sorted(list(m))) if m else ""))
+    log.info("[ROUTES] %s", paths)
+    yield
+
+app = FastAPI(lifespan=lifespan)
 
 print("### WEB API MAIN LOADED ###")
+
