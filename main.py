@@ -431,7 +431,7 @@ async def check_address(payload: AddressCheckRequest):
             ok=False,
             normalized_address=payload.address,
             zone=None,
-            message="Адрес кухни не задан",
+            message="Адрес заведения не задан",
         )
 
     kitchen_coords = await geocode_address(kitchen_address)

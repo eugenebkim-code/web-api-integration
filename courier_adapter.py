@@ -5,10 +5,10 @@
 import httpx
 import os
 
-COURIER_API_URL = os.getenv(
-    "COURIER_API_URL",
-    "http://127.0.0.1:9000",  # fallback только для локалки
-)
+COURIER_API_URL = os.getenv("COURIER_API_URL")
+
+if not COURIER_API_URL:
+    raise RuntimeError("COURIER_API_URL is not set")
 
 API_KEY = os.getenv("COURIER_API_KEY", "DEV_KEY")
 
