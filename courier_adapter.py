@@ -20,7 +20,10 @@ async def create_courier_order(payload: dict) -> str:
     print("USING create_courier_order FROM courier_adapter")
 
     kitchen_id = payload.get("kitchen_id", 1)
-    pickup_address = _get_kitchen_address(kitchen_id)
+    # Не перетираем адрес если он уже есть в payload
+    pickup_address = payload.get("pickup_address")
+    if not pickup_address:
+        pickup_address = _get_kitchen_address(kitchen_id)
     
     print(f"[COURIER_ADAPTER] kitchen_id={kitchen_id} pickup_address={pickup_address}")
 
