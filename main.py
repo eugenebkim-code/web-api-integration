@@ -1505,4 +1505,3 @@ def map_courier_status_to_kitchen(courier_status: str) -> str | None:
 
 
 print("### WEB API MAIN LOADED ###")
-
