@@ -635,6 +635,11 @@ async def create_webapp_order(payload: WebAppOrderCreateRequest):
 )
 async def create_order(payload: OrderCreateRequest):
 
+    # 🔥🔥🔥 VERSION CHECK 🔥🔥🔥
+    log.info("=" * 80)
+    log.info("🔥🔥🔥 WEBAPP-ONLY VERSION 2.0 LOADED 🔥🔥🔥")
+    log.info("=" * 80)
+
     log.info(
         "[CREATE_ORDER] order_id=%s source=%s kitchen_id=%s courier_requested=%s",
         payload.order_id,
