@@ -668,13 +668,30 @@ async def create_order(payload: OrderCreateRequest):
     if payload.kitchen_id is None:
         payload.kitchen_id = 1
 
-    # 1. idempotency
+    # 1. idempotency check с поддержкой добавления курьера к WebApp заказу
     if payload.order_id in ORDERS:
-        return OrderCreateResponse(
-            status="ok",
-            external_delivery_ref=ORDERS[payload.order_id].get("delivery_order_id"),
-            already_exists=True,
-        )
+        existing = ORDERS[payload.order_id]
+        
+        # Если это WebApp заказ БЕЗ курьера, но Kitchen Bot добавляет ETA - обновляем!
+        if existing.get("source") == "webapp" and payload.pickup_eta_at is not None:
+            log.info(
+                "[UPDATE_WEBAPP_ORDER] Adding courier to order %s | ETA=%s",
+                payload.order_id,
+                payload.pickup_eta_at,
+            )
+            # Продолжаем выполнение - НЕ возвращаемся!
+        else:
+            # Обычный idempotency - заказ уже полностью создан
+            log.info(
+                "[IDEMPOTENCY] Order %s already exists | delivery_order_id=%s",
+                payload.order_id,
+                existing.get("delivery_order_id"),
+            )
+            return OrderCreateResponse(
+                status="ok",
+                external_delivery_ref=existing.get("delivery_order_id"),
+                already_exists=True,
+            )
 
     # 2. определяем решение кухни
     courier_requested = payload.pickup_eta_at is not None
