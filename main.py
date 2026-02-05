@@ -132,7 +132,7 @@ KITCHENS_REGISTRY = {
         "name": "Street Food Hub",
         "city": "dunpo",
         "active": True,
-        "tg_chat_id": 2115245228,
+        "tg_chat_id": 1844813721,
     },
 }
 
