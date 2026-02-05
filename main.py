@@ -16,6 +16,9 @@ import courier_adapter  # ✅ ИСПРАВЛЕНО: импортируем мо�
 from kitchen_context import load_registry
 from kitchen_stubs import read_kitchen_catalog
 
+print("=" * 80)
+print("🔥🔥🔥 WEB API VERSION 3.0 - WEBAPP ONLY FLOW 🔥🔥🔥")
+print("=" * 80)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -1527,3 +1530,4 @@ def map_courier_status_to_kitchen(courier_status: str) -> str | None:
 
 
 print("### WEB API MAIN LOADED ###")
+
