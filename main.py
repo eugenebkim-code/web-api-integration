@@ -12,7 +12,7 @@ from sheets_sync import sync_delivery_status_to_kitchen
 from delivery_fsm import is_valid_transition, is_final
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
-import courier_adapter
+import courier_adapter  # ✅ ИСПРАВЛЕНО: импортируем модуль, не функцию
 from kitchen_context import load_registry
 from kitchen_stubs import read_kitchen_catalog
 
@@ -643,8 +643,6 @@ async def create_order(payload: OrderCreateRequest):
         payload.pickup_eta_at is not None,
     )
 
-    
-
     kitchen_address = get_kitchen_address_from_sheets(payload.kitchen_id)
     kitchen_coords = await geocode_address(kitchen_address)
     client_coords = await geocode_address(payload.delivery_address)
@@ -786,7 +784,7 @@ async def create_order(payload: OrderCreateRequest):
     ],
 )
 async def set_pickup_eta(order_id: str, payload: PickupETARequest):
-    
+
     order = ORDERS.get(order_id)
     if not order:
         log.warning(
@@ -825,7 +823,6 @@ async def set_pickup_eta(order_id: str, payload: PickupETARequest):
         }
     log.error("[DEBUG COURIER PAYLOAD] %s", courier_payload)
     try:
-        
         delivery_order_id = await courier_adapter.create_courier_order(courier_payload)
     except Exception:
         raise HTTPException(
