@@ -33,6 +33,11 @@ def _get_kitchen_address(kitchen_id: int) -> str:
 
 
 async def create_courier_order(payload: dict) -> str:
+    import sys
+    print(f"🔥🔥🔥 FUNCTION CALLED FROM: {__file__}")
+    print(f"🔥🔥🔥 FUNCTION: {sys._getframe().f_code.co_name}")
+    print("=" * 80)
+    print("🚀 NEW VERSION courier_adapter.create_courier_order CALLED")
     """
     Отправляет заказ в курьерскую службу.
     

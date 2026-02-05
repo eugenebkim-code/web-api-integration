@@ -12,7 +12,7 @@ from sheets_sync import sync_delivery_status_to_kitchen
 from delivery_fsm import is_valid_transition, is_final
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
-from courier_adapter import create_courier_order
+import courier_adapter
 from kitchen_context import load_registry
 from kitchen_stubs import read_kitchen_catalog
 
@@ -643,7 +643,7 @@ async def create_order(payload: OrderCreateRequest):
         payload.pickup_eta_at is not None,
     )
 
-    print(">>> USING create_courier_order FROM", create_courier_order.__module__)
+    
 
     kitchen_address = get_kitchen_address_from_sheets(payload.kitchen_id)
     kitchen_coords = await geocode_address(kitchen_address)
@@ -704,7 +704,7 @@ async def create_order(payload: OrderCreateRequest):
         }
         log.error("[DEBUG COURIER PAYLOAD] %s", courier_payload)
         try:
-            delivery_order_id = await create_courier_order(courier_payload)
+            delivery_order_id = await courier_adapter.create_courier_order(courier_payload)
             delivery_provider = "courier"
         except Exception as e:
             log.error("[COURIER_CREATE_FAILED] %s", e)
@@ -786,8 +786,7 @@ async def create_order(payload: OrderCreateRequest):
     ],
 )
 async def set_pickup_eta(order_id: str, payload: PickupETARequest):
-    print(">>> USING create_courier_order FROM", create_courier_order.__module__)
-
+    
     order = ORDERS.get(order_id)
     if not order:
         log.warning(
@@ -826,8 +825,8 @@ async def set_pickup_eta(order_id: str, payload: PickupETARequest):
         }
     log.error("[DEBUG COURIER PAYLOAD] %s", courier_payload)
     try:
-        print(">>> USING create_courier_order FROM", create_courier_order.__module__)
-        delivery_order_id = await create_courier_order(courier_payload)
+        
+        delivery_order_id = await courier_adapter.create_courier_order(courier_payload)
     except Exception:
         raise HTTPException(
             status_code=503,
