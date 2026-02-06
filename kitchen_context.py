@@ -201,6 +201,28 @@ def load_registry(force: bool = False) -> None:
             },
             theme={},
         ),
+
+        "kitchen_6": KitchenContext(
+            kitchen_id="kitchen_6",
+            status="active",
+
+            spreadsheet_id="1_I9E94eYgurv5n2sR-Zio7grTCnXJA2BPxu9R-wC5XE",
+
+            owner_chat_id=1844813721,
+            staff_chat_ids={1844813721},
+
+            city="dunpo",
+            timezone=None,
+
+            commission_pct=0.0,
+
+            enabled_actions={
+                "geo:validate",
+                "order:create",
+            },
+
+            theme={},
+        ),
     }
     
     _LAST_LOADED_AT = datetime.utcnow()

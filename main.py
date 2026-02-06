@@ -134,6 +134,14 @@ KITCHENS_REGISTRY = {
         "active": True,
         "tg_chat_id": 1844813721,
     },
+
+    6: {
+        "spreadsheet_id": "1_I9E94eYgurv5n2sR-Zio7grTCnXJA2BPxu9R-wC5XE",
+        "name": "Golden Crumb Bakery",
+        "city": "dunpo",
+        "active": True,
+        "tg_chat_id": 1844813721,
+    },
 }
 
 # ===== Delivery price stub (MVP) =====
