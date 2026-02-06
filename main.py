@@ -517,6 +517,52 @@ class WebAppOrderCreateRequest(BaseModel):
 
 #=====================Endpoint создания заказа====================#
 
+@app.get(
+    "/api/v1/kitchens/{kitchen_id}/orders/pending",
+    dependencies=[Depends(require_api_key)],
+)
+def get_pending_kitchen_orders(kitchen_id: int):
+    """
+    Orders waiting for kitchen decision (desktop client).
+    """
+    result = []
+
+    for order in ORDERS.values():
+        try:
+            if order.get("kitchen_id") != kitchen_id:
+                continue
+
+            if order.get("delivery_state") != "delivery_new":
+                continue
+
+            if order.get("courier_decision"):
+                continue
+
+            result.append({
+                "order_id": order.get("order_id"),
+                "created_at": order.get("created_at"),
+                "items": order.get("items"),
+                "total_price": order.get("total_price"),
+                "address": order.get("delivery_address") or order.get("address"),
+                "delivery_fee": order.get("delivery_price_krw") or order.get("delivery_fee"),
+                "source": order.get("source"),
+            })
+
+        except Exception as e:
+            log.error(
+                "[PENDING_ORDER_SKIP] %s err=%s",
+                order.get("order_id"),
+                e,
+            )
+
+    log.info(
+        "[KITCHEN_PENDING] kitchen_id=%s count=%s",
+        kitchen_id,
+        len(result),
+    )
+
+    return result
+
 @app.post(
     "/api/v1/webapp/orders",
     dependencies=[Depends(require_api_key)],
@@ -625,6 +671,10 @@ async def create_webapp_order(payload: WebAppOrderCreateRequest):
         "kitchen_id": payload.kitchen_id,
         "status": "created",
         "delivery_state": "delivery_new",
+
+        # 🆕 kitchen FSM
+        "kitchen_state": "waiting",
+        "kitchen_state_at": datetime.utcnow().isoformat(),
     }
 
     log.info("[WEBAPP_ORDER_CREATED] %s", payload.order_id)
@@ -1503,6 +1553,33 @@ def courier_status_webhook(payload: CourierStatusWebhook):
         )
 
 # ===== Events (fan-out base) =====
+
+def set_kitchen_state(
+    order: dict,
+    state: str,
+):
+    now = datetime.utcnow().isoformat()
+
+    order["kitchen_state"] = state
+    order["kitchen_state_at"] = now
+
+    try:
+        sheets = get_sheets_service_safe()
+        spreadsheet_id = get_kitchen_spreadsheet_id(order["kitchen_id"])
+
+        # AG = 33, AH = 34 (1-based)
+        sheets.values().update(
+            spreadsheetId=spreadsheet_id,
+            range=f"orders!AG{order.get('sheet_row', '')}:AH{order.get('sheet_row', '')}",
+            valueInputOption="RAW",
+            body={
+                "values": [[state, now]]
+            },
+        ).execute()
+
+    except Exception as e:
+        log.error("[KITCHEN_STATE_SYNC_FAILED] %s", e)
+
 
 def emit_event(event_type: str, order_id: str, payload: dict | None = None):
     try:
