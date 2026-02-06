@@ -71,6 +71,7 @@ async def create_courier_order(payload: dict) -> str:
         courier_payload = {
             "order_id": payload["order_id"],
             "source": payload["source"],
+            "kitchen_id": kitchen_id,  # ✅ ДОБАВЛЕНО
             "client_tg_id": payload["client_tg_id"],
             "client_name": payload["client_name"],
             "client_phone": payload["client_phone"],
