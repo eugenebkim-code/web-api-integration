@@ -329,7 +329,38 @@ class PickupETARequest(BaseModel):
     pickup_eta_at: datetime
     source: str = "preset"
 
+# ===== WebApp Order Models =====
 
+class WebAppItem(BaseModel):
+    name: str
+    qty: int
+
+
+class WebAppDelivery(BaseModel):
+    address: str
+    price_krw: int
+
+
+class WebAppPayment(BaseModel):
+    upload_id: str
+
+
+class WebAppOrderCreateRequest(BaseModel):
+    order_id: str
+
+    kitchen_id: int | str
+    city: str
+
+    user_id: Optional[int] = None
+
+    items: list[WebAppItem]
+    total_price: int
+
+    delivery: WebAppDelivery
+    payment: WebAppPayment
+
+    comment: Optional[str] = None
+    
 #5. Геокодинг и зоны (STUB)#
 
 import requests
