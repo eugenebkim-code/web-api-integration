@@ -427,17 +427,25 @@ class AddressCheckResponse(BaseModel):
     delivery_price: Optional[int] = None
     distance_km: Optional[float] = None
 
-@app.post("/api/v1/validate-address", response_model=AddressCheckResponse, dependencies=[Depends(require_api_key)])
-async def validate_address_alias(payload: AddressCheckRequest):
-    return await _check_address_impl(payload)
-
-@app.post("/api/v1/validate-address", response_model=AddressCheckResponse, dependencies=[Depends(require_api_key)])
-async def check_address(payload: AddressCheckRequest):
+@app.post(
+    "/api/v1/validate-address",
+    response_model=AddressCheckResponse,
+    dependencies=[Depends(require_api_key)],
+)
+async def validate_address(payload: AddressCheckRequest):
+    # 0) вход
+    log.info("[ADDR] /validate-address called")
+    try:
+        log.info("[ADDR] payload=%s", payload.model_dump() if hasattr(payload, "model_dump") else payload.dict())
+    except Exception:
+        log.exception("[ADDR] failed to dump payload")
 
     kitchen_id = payload.kitchen_id
     kitchen_address = get_kitchen_address_from_sheets(kitchen_id)
+    log.info("[ADDR] kitchen_id=%s kitchen_address=%r", kitchen_id, kitchen_address)
 
     if not kitchen_address:
+        log.warning("[ADDR] kitchen address missing for kitchen_id=%s", kitchen_id)
         return AddressCheckResponse(
             ok=False,
             normalized_address=payload.address,
@@ -445,10 +453,19 @@ async def check_address(payload: AddressCheckRequest):
             message="Адрес заведения не задан",
         )
 
+    # 1) geocode кухни
     kitchen_coords = await geocode_address(kitchen_address)
+    log.info("[ADDR] kitchen_coords=%s", kitchen_coords)
+
+    # 2) geocode клиента
     client_coords = await geocode_address(payload.address)
+    log.info("[ADDR] client_coords=%s for address=%r", client_coords, payload.address)
 
     if not kitchen_coords or not client_coords:
+        log.warning(
+            "[ADDR] geocode failed kitchen_coords=%s client_coords=%s",
+            kitchen_coords, client_coords
+        )
         return AddressCheckResponse(
             ok=False,
             normalized_address=payload.address,
@@ -456,27 +473,31 @@ async def check_address(payload: AddressCheckRequest):
             message="Не удалось определить координаты",
         )
 
+    # 3) distance
     distance_km = haversine_km(
         kitchen_coords[0], kitchen_coords[1],
         client_coords[0], client_coords[1],
     )
+    log.info("[ADDR] distance_km=%.4f", float(distance_km))
 
-    # зона теперь ИНФОРМАЦИОННАЯ
+    # зона информационная
     STANDARD_ZONE_KM = 4.0
     MIN_DELIVERY_PRICE_KRW = 4000
 
     if distance_km <= STANDARD_ZONE_KM:
         price = MIN_DELIVERY_PRICE_KRW
+        log.info("[ADDR] inside standard zone, price=%s", price)
     else:
         price = calculate_delivery_price(distance_km)
+        log.info("[ADDR] outside standard zone, price=%s", price)
 
     outside_zone = distance_km > STANDARD_ZONE_KM
 
-    return AddressCheckResponse(
+    resp = AddressCheckResponse(
         ok=True,
         normalized_address=payload.address,
         zone=payload.city,
-        delivery_price=price,  # 👈 ВАЖНО
+        delivery_price=price,
         distance_km=round(distance_km, 2),
         message=(
             f"Адрес вне стандартной зоны ({round(distance_km,1)} км). "
@@ -485,34 +506,14 @@ async def check_address(payload: AddressCheckRequest):
             else f"Стоимость доставки {price} ₩"
         ),
     )
-# ===== WebApp order models =====
 
-from typing import List
+    # 4) выход
+    try:
+        log.info("[ADDR] response=%s", resp.model_dump() if hasattr(resp, "model_dump") else resp.dict())
+    except Exception:
+        log.exception("[ADDR] failed to dump response")
 
-class WebAppOrderItem(BaseModel):
-    name: str
-    qty: int
-
-class WebAppPaymentProof(BaseModel):
-    upload_id: str
-
-class WebAppDelivery(BaseModel):
-    address: str
-    price_krw: int
-
-class WebAppOrderCreateRequest(BaseModel):
-    order_id: str
-
-    # ✅ Telegram user id (из WebApp)
-    user_id: Optional[int] = None
-
-    kitchen_id: int
-    city: str
-    items: List[WebAppOrderItem]
-    total_price: int
-    delivery: WebAppDelivery
-    comment: Optional[str] = None
-    payment: WebAppPaymentProof
+    return resp
 
 
 #=====================Endpoint создания заказа====================#

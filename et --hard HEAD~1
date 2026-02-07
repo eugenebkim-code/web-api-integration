@@ -1,0 +1,115 @@
+[33m8973d41[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m)[m desktop client make payload1
+[33m774525d[m desktop client make payload
+[33mb6d39fa[m desktop client make endpoint
+[33m3a46994[m kitchen6
+[33m8dd2c21[m fix payload
+[33m8248049[m fixmain webapp only orders3
+[33m1a924a9[m fixmain webapp only orders2
+[33m9a549e0[m fixmain webapp only orders2
+[33mb8b8b4a[m fixmain webapp only orders
+[33m52b03be[m fixmain
+[33mbfc9f00[m fixmain
+[33meee7237[m fix1
+[33m5ece2df[m fix
+[33m4ad2584[m fix
+[33mffef664[m fix:vars
+[33m946b8a5[m fix:vars
+[33m11f951c[m fix: disable runtime import in courier_adapter
+[33mcba1c83[m fix: enforce min delivery price within 4km zone in address check
+[33mc29bfa7[m fix(webapi): define lifespan before FastAPI init
+[33mb6620cc[m fix(webapi): single FastAPI app, restore all routes (lifespan fix)
+[33mdaf0268[m fix: pin python version to 3.11.8 for railway
+[33m7b4467b[m fix:tgID2
+[33m36718f9[m fix:tgID2
+[33md2bf5a8[m fix:tgID2
+[33m906ab33[m fix:tgID
+[33m663a6cc[m fix: add validate-address alias and support kitchen_id string
+[33mf4abf3f[m fix: use KitchenContext attribute for spreadsheet_id
+[33m75aec44[m fix: use KitchenContext attribute for spreadsheet_id
+[33m89b5ff4[m fix: use KitchenContext attribute for spreadsheet_id
+[33m38348ed[m fix: use KitchenContext attribute for spreadsheet_id
+[33m7924e96[m webapi: relax payment proof validation for webapp orders
+[33m60e3d0c[m webapi: normalize kitchen_id for webapp orders
+[33m044d258[m webapi: add webapp order create endpoint
+[33m7c85ab9[m fix: add python-multipart and clean requirements
+[33m4dbd79d[m webapi: add upload endpoint for webapp payment proof
+[33m80f6f07[m fix: accept delivery_price from webapp and avoid zero delivery price
+[33m61f69a4[m fix: courier API URL via env, prepare for Railway deploy
+[33m784957e[m fix: restore orders from sheets across all kitchens
+[33m35a36b2[m fix: enable CORS for WebApp
+[33me4a2820[m webapi: address check stub, geocoding, delivery price calculation
+[33md102816[m fix: kitchen catalog parsing + customer_price
+[33mc0ff2e8[m test: adjust delivery sync test after eta changes
+[33m7322851[m fix kitchen context usage and registry handling
+[33meccae08[m add kitchen_context and sync web_api logic
+[33ma1bcda9[m fix: restore order flow after ETA changes
+[33m5260ee7[m fix: align orders schema A:AD, delivery proof handling and kitchen notifications
+[33m23599d7[m wip: courier adapter integration and order create flow
+[33ma1ce8a8[m webapi: allow any distance, always calculate delivery price
+[33m0d7789b[m fix: safe courier status mapping and proof handling
+[33m093070a[m fix: delivery fanout and kitchen telegram notifications
+[33mb26d72a[m webapi: delivery status flow + kitchen notifications (stub)
+[33m2cb3078[m fanout: canonical delivery notifications; comments only in related modules
+[33m799018d[m fix: courier integration trigger after kitchen accept
+[33m166ac90[m Fix courier order creation flow (ETA, delivery_order_id handling)
+[33md1fc4a5[m sheets: enable delivery status sync to kitchen orders
+[33me33cf86[m sheets: append order row if not exists + working courier stub flow
+[33m1ccea13[m patch: enable minimal sheets sync on order create
+[33m50a2d34[m stub: default kitchen_id for working flow
+[33m74751b0[m stub: working delivery flow (address ok + min tariff)
+[33md768e54[m webapi: courier stub switch, fanout, eta flow stabilized
+[33ma5d257a[m webapi: make fanout fail-safe
+[33mc108487[m webapi: connect courier adapter and pickup_eta flow
+[33ma285d08[m webapi: allow order creation without pickup_eta_at
+[33mca09b23[m webapi: sync courier_not_requested immediately
+[33mb1be411[m webapi: finalize create_order with courier decision logic
+[33m0c2d876[m webapi: async create_order and courier adapter integration
+[33m092abee[m Add delivery FSM and fix first courier status sync
+[33md7deaf7[m web api: stabilize delivery sync, make sheets access lazy, add tests
+[33m06ab7cc[m step8: courier status notifications fail-safe
+[33mc1471eb[m webapi: courier status webhook and delivery status mapping
+[33m19195df[m webapi: add base fan-out events and hook into courier webhook
+[33mbd59e49[m webapi: add courier status webhook endpoint
+[33m3787a85[m webapi: add courier to kitchen status mapping
+[33me1dfdb0[m webapi: simplify order lifecycle, remove courier coupling
+[33m550770f[m remove legacy web-api implementation
+[33m046eafa[m webapi: mark delivery as external provider
+[33m0921de3[m cleanup repo: remove secrets and legacy files
+[33m4585c64[m On main: temp before history rewrite
+[33m2ab84aa[m[33m ([m[1;35mrefs/stash[m[33m)[m On main: temp before history rewrite
+[33mbcd8f13[m index on main: cffb77f web api: kitchen creates orders, address verify
+[33m6c9f2f1[m untracked files on main: cffb77f web api: kitchen creates orders, address verify
+[33mcffb77f[m web api: kitchen creates orders, address verify
+[33m082c14c[m web api: kitchen creates orders, address verify
+[33m2ae7793[m fix: call notify_staff_from_web without bot argument
+[33m6ba50c7[m fix: call notify_staff_from_web without bot argument
+[33mc98d7e8[m fix: unify notify_staff_from_web signature and webapi call
+[33m7ab7571[m fix: unify notify_staff_from_web signature and webapi call
+[33m22970f4[m fix: remove config import from web_api (env-only)
+[33m38f6902[m fix: remove config import from web_api (env-only)
+[33m98fb879[m fix: delegate staff notification to bot with inline keyboard
+[33me343541[m fix: delegate staff notification to bot with inline keyboard
+[33meea8795[m restore working webapp -> telegram notify (no buttons, stable MVP)
+[33me568801[m restore working webapp -> telegram notify (no buttons, stable MVP)
+[33md7ed901[m restore direct telegram notify from web_api (rollback to working)
+[33md2cd7c3[m restore direct telegram notify from web_api (rollback to working)
+[33mfd3a8d4[m fix: restore telegram notify from webapp
+[33m897db55[m fix: restore telegram notify from webapp
+[33m1016e4e[m webapi: stabilize order creation and staff notification flow
+[33m57287ba[m webapi: stabilize order creation and staff notification flow
+[33m084b68b[m webapp: remove direct telegram notify, rely on bot job
+[33m1d74358[m webapp: remove direct telegram notify, rely on bot job
+[33m3e8876e[m Finalize Web API: stable order intake, prod-ready
+[33m4d16fa8[m Finalize Web API: stable order intake, prod-ready
+[33md7c92b2[m Fix screenshots dir: define SCREENSHOTS_DIR for Railway runtime
+[33m64d882d[m Fix screenshots dir: define SCREENSHOTS_DIR for Railway runtime
+[33mec00ebc[m Web API: stabilize order endpoint, fix notify flow, Railway-ready env
+[33m98694db[m Web API: stabilize order endpoint, fix notify flow, Railway-ready env
+[33m0362b13[m Add request context logging for /order
+[33m4cfe9c2[m Add request context logging for /order
+[33m86c075a[m Fix notify_staff_from_web call: pass order dict instead of bot/id
+[33m9bc84cc[m Fix notify_staff_from_web call: pass order dict instead of bot/id
+[33mbf224b7[m Refactor web_api and notifications: remove local deps, unify env, prod-ready
+[33md813ef0[m Refactor web_api and notifications: remove local deps, unify env, prod-ready
+[33m264ea51[m remove service account json from repo
+[33mad9bdf8[m remove service account json from repo
