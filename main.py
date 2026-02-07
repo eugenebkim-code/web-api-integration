@@ -1419,16 +1419,6 @@ async def _check_address_impl(payload: AddressCheckRequest) -> AddressCheckRespo
 async def check_address(payload: AddressCheckRequest):
     return await _check_address_impl(payload)
 
-
-# алиас под фронт, чтобы не менять Vue еще 10 раз
-@app.post(
-    "/api/v1/address/check",
-    response_model=AddressCheckResponse,
-    dependencies=[Depends(require_api_key)],
-)
-async def validate_address(payload: AddressCheckRequest):
-    return await _check_address_impl(payload)
-
 # ===== Utilities =====
 
 def load_order_from_sheets(order_id: str) -> dict | None:
