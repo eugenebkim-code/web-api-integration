@@ -541,11 +541,26 @@ def get_pending_kitchen_orders(kitchen_id: int):
             result.append({
                 "order_id": order.get("order_id"),
                 "created_at": order.get("created_at"),
+
+                # клиент
+                "client_name": order.get("client_name") or "—",
+                "client_phone": order.get("client_phone") or "—",
+
+                # заказ
                 "items": order.get("items"),
+                "comment": order.get("comment") or "—",
+
+                # адреса
+                "delivery_address": order.get("delivery_address") or order.get("address"),
+                "pickup_address": order.get("pickup_address"),
+
+                # деньги
+                "delivery_price_krw": order.get("delivery_price_krw") or order.get("delivery_fee"),
                 "total_price": order.get("total_price"),
-                "address": order.get("delivery_address") or order.get("address"),
-                "delivery_fee": order.get("delivery_price_krw") or order.get("delivery_fee"),
+
+                # мета
                 "source": order.get("source"),
+                "city": order.get("city"),
             })
 
         except Exception as e:
@@ -890,20 +905,24 @@ async def set_pickup_eta(order_id: str, payload: PickupETARequest):
     order["status"] = "delivery_new"
 
     # формируем payload для курьерки
+    order = ORDERS.get(order_id)
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+
     courier_payload = {
-            "order_id": payload.order_id,
-            "source": payload.source,
-            "kitchen_id": payload.kitchen_id or 1,
-            "client_tg_id": payload.client_tg_id,
-            "client_name": payload.client_name,
-            "client_phone": payload.client_phone,
-            "pickup_address": payload.pickup_address,
-            "delivery_address": payload.delivery_address,
-            "pickup_eta_at": payload.pickup_eta_at.isoformat() if payload.pickup_eta_at else None,
-            "city": payload.city,
-            "comment": payload.comment,
-            "price_krw": delivery_price,
-        }
+        "order_id": order["order_id"],
+        "source": payload.source,
+        "kitchen_id": order["kitchen_id"],
+        "client_tg_id": order["client_tg_id"],
+        "client_name": order.get("client_name", ""),
+        "client_phone": order.get("client_phone", ""),
+        "pickup_address": order["pickup_address"],
+        "delivery_address": order["delivery_address"],
+        "pickup_eta_at": payload.pickup_eta_at.isoformat(),
+        "city": order["city"],
+        "comment": order.get("comment"),
+        "price_krw": order["delivery_price_krw"],
+    }
     log.error("[DEBUG COURIER PAYLOAD] %s", courier_payload)
     try:
         delivery_order_id = await courier_adapter.create_courier_order(courier_payload)
