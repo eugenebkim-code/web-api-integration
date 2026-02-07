@@ -684,10 +684,33 @@ async def create_webapp_order(payload: WebAppOrderCreateRequest):
         "order_id": payload.order_id,
         "source": "webapp",
         "kitchen_id": payload.kitchen_id,
+
+        # клиент
+        "client_name": "—",  # если появится позже — обновим
+        "client_phone": "—",
+
+        # заказ
+        "items": items_str,
+        "comment": payload.comment or "—",
+
+        # адреса
+        "delivery_address": payload.delivery.address,
+        "pickup_address": None,
+
+        # деньги
+        "delivery_price_krw": payload.delivery.price_krw,
+        "total_price": payload.total_price,
+
+        # статусы
         "status": "created",
         "delivery_state": "delivery_new",
+        "courier_decision": None,
 
-        # 🆕 kitchen FSM
+        # meta
+        "city": payload.city,
+        "created_at": datetime.utcnow().isoformat(),
+
+        # kitchen FSM
         "kitchen_state": "waiting",
         "kitchen_state_at": datetime.utcnow().isoformat(),
     }
